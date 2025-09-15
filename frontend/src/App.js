@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import MDEditor from '@uiw/react-md-editor';
 import {
   Box,
@@ -33,13 +33,19 @@ import {
   MenuList,
   MenuItem,
   IconButton,
+  InputGroup,
+  InputLeftElement,
+  Spacer,
 } from '@chakra-ui/react';
-import { ChevronRightIcon, ChevronDownIcon, HamburgerIcon } from '@chakra-ui/icons';
+import { ChevronRightIcon, ChevronDownIcon, SearchIcon, SettingsIcon, AddIcon, HamburgerIcon } from '@chakra-ui/icons';
 import { FolderIcon, FileIcon } from './icons';
 
 // Recursive component to render file/folder tree
 const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, selectedDoc, onSelectFolder, onMoveItem }) => {
   const [openFolders, setOpenFolders] = useState({});
+  const hoverBg = useColorModeValue('gray.200', 'gray.600');
+  const selectedBg = useColorModeValue('blue.500', 'blue.500');
+  const selectedHoverBg = useColorModeValue('blue.600', 'blue.600');
 
   const toggleFolder = (path) => {
     setOpenFolders((prev) => ({
@@ -48,11 +54,27 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
     }));
   };
 
+  useEffect(() => {
+    // Open folders of the selected doc
+    if (selectedDoc) {
+      const parts = selectedDoc.split('/');
+      parts.pop(); // remove filename
+      let currentPath = '';
+      const newOpenFolders = {};
+      for (const part of parts) {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        newOpenFolders[currentPath] = true;
+      }
+      setOpenFolders(prev => ({ ...prev, ...newOpenFolders }));
+    }
+  }, [selectedDoc]);
+
+
   return (
-    <VStack spacing={2} align="stretch">
+    <VStack spacing={1} align="stretch">
       {items.map((item) => (
-        <Box key={item.path} pl={item.type === 'file' ? 6 : 0}>
-          <Flex align="center" justifyContent="space-between">
+        <Box key={item.path} pl={item.path.split('/').length > 1 ? 4 : 0}>
+          <Flex align="center" justifyContent="space-between" _hover={{ bg: hoverBg }} borderRadius="md">
             <Button
               variant="ghost"
               justifyContent="flex-start"
@@ -64,10 +86,15 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
                   onSelectFolder(item.path);
                 }
               }}
-              colorScheme={selectedDoc === item.path ? 'blue' : 'gray'}
+              backgroundColor={selectedDoc === item.path ? selectedBg : 'transparent'}
+              color={selectedDoc === item.path ? 'white' : 'inherit'}
+              _hover={{
+                backgroundColor: selectedDoc === item.path ? selectedHoverBg : hoverBg,
+              }}
               flex="1"
+              pl={2}
             >
-              <HStack spacing={2}>
+              <HStack spacing={1}>
                 {item.type === 'folder' && (
                   <Icon
                     as={openFolders[item.path] ? ChevronDownIcon : ChevronRightIcon}
@@ -78,7 +105,7 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
                   />
                 )}
                 <Icon as={item.type === 'file' ? FileIcon : FolderIcon} mr={2} />
-                <Text isTruncated>{item.name}</Text>
+                <Text isTruncated maxW="180px">{item.name.replace(/\.md$/, '')}</Text>
               </HStack>
             </Button>
             <Menu>
@@ -164,6 +191,7 @@ function App() {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [markdown, setMarkdown] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const toast = useToast();
 
   const { isOpen: isRenameOpen, onOpen: onRenameOpen, onClose: onRenameClose } = useDisclosure();
@@ -171,6 +199,7 @@ function App() {
   const { isOpen: isNewFolderOpen, onOpen: onNewFolderOpen, onClose: onNewFolderClose } = useDisclosure();
   const { isOpen: isNewNoteOpen, onOpen: onNewNoteOpen, onClose: onNewNoteClose } = useDisclosure();
   const { isOpen: isMoveOpen, onOpen: onMoveOpen, onClose: onMoveClose } = useDisclosure();
+  const { isOpen: isSettingsOpen, onOpen: onSettingsOpen, onClose: onSettingsClose } = useDisclosure();
 
   const [itemToRename, setItemToRename] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
@@ -178,11 +207,11 @@ function App() {
   const [newFolderName, setNewFolderName] = useState('');
   const [newNoteName, setNewNoteName] = useState('');
   const [currentFolder, setCurrentFolder] = useState('');
-  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [itemToMove, setItemToMove] = useState(null);
   const [destinationFolder, setDestinationFolder] = useState('');
-  
+
   const API_URL = '/api';
   const cancelRef = React.useRef();
   const fileInputRef = React.useRef();
@@ -447,155 +476,199 @@ function App() {
     }
   };
 
-  const sidebarBg = useColorModeValue("gray.100", "gray.700");
-  const mainBg = useColorModeValue("white", "gray.800");
-
-  const startResizing = (e) => {
-    e.preventDefault();
-    document.addEventListener('mousemove', resize);
-    document.addEventListener('mouseup', stopResizing);
+  const handleExportAll = () => {
+    const url = `${API_URL}/export/`;
+    window.open(url, '_blank');
   };
 
-  const resize = (e) => {
+  const filteredDocuments = useMemo(() => {
+    if (!searchQuery) {
+      return documents;
+    }
+  
+    const lowercasedQuery = searchQuery.toLowerCase();
+  
+    const filterItems = (items) => {
+      return items.reduce((acc, item) => {
+        if (item.type === 'folder') {
+          const filteredChildren = filterItems(item.children || []);
+          if (filteredChildren.length > 0 || item.name.toLowerCase().includes(lowercasedQuery)) {
+            acc.push({ ...item, children: filteredChildren });
+          }
+        } else { // type is 'file'
+          if (item.name.toLowerCase().includes(lowercasedQuery)) {
+            acc.push(item);
+          }
+        }
+        return acc;
+      }, []);
+    };
+  
+    return filterItems(documents);
+  }, [documents, searchQuery]);
+
+  const sidebarBg = useColorModeValue("gray.50", "gray.800");
+  const mainBg = useColorModeValue("white", "gray.900");
+  const headingColor = useColorModeValue("gray.600", "gray.200");
+  const welcomeHeadingColor = useColorModeValue("gray.700", "gray.200");
+  const sidebarBorderColor = useColorModeValue("gray.200", "gray.700");
+
+  const resize = useCallback((e) => {
     const newWidth = e.clientX;
     if (newWidth > 200 && newWidth < 800) {
       setSidebarWidth(newWidth);
     }
-  };
+  }, []);
 
-  const stopResizing = () => {
+  const stopResizing = useCallback(() => {
     document.removeEventListener('mousemove', resize);
     document.removeEventListener('mouseup', stopResizing);
-  };
+  }, [resize]);
+
+  const startResizing = useCallback((e) => {
+    e.preventDefault();
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('mouseup', stopResizing);
+  }, [resize, stopResizing]);
 
   return (
     <Flex h="100vh">
       {/* Sidebar */}
-      <Box
-        w={isSidebarCollapsed ? '0px' : `${sidebarWidth}px`}
-        minW={isSidebarCollapsed ? '0px' : '200px'}
+      <Flex
+        as="aside"
+        w={isSidebarCollapsed ? '56px' : `${sidebarWidth}px`}
+        minW={isSidebarCollapsed ? '56px' : '200px'}
         bg={sidebarBg}
-        p={isSidebarCollapsed ? 0 : 4}
         borderRight="1px"
-        borderColor="gray.200"
-        transition="width 0.2s"
+        borderColor={sidebarBorderColor}
+        transition="width 0.2s, min-width 0.2s"
         position="relative"
-        overflow="hidden"
+        direction="column"
       >
         <Flex
-          justifyContent="space-between"
-          alignItems="center"
-          mb={6}
-          pr={isSidebarCollapsed ? 0 : 4}
-          transition="padding-right 0.2s"
+          direction="column"
+          h="100%"
+          w="100%"
+          overflow="hidden"
+          as="nav"
         >
-          {!isSidebarCollapsed && (
-            <Heading as="h1" size="lg" color="gray.600">
-              A Simple Data Flow
-            </Heading>
-          )}
-          <IconButton
-            icon={<HamburgerIcon />}
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            variant="ghost"
-            aria-label="Toggle Sidebar"
-          />
-        </Flex>
+          {/* Top Section: Hamburger and Title */}
+          <Flex
+            alignItems="center"
+            p={2}
+            justifyContent={isSidebarCollapsed ? 'center' : 'flex-start'}
+          >
+            <IconButton
+              icon={<HamburgerIcon />}
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              variant="ghost"
+              aria-label="Toggle Sidebar"
+            />
+            {!isSidebarCollapsed && (
+              <Heading as="h1" size="md" color="gray.600" ml={4} noOfLines={1}>
+                A Simple Data Flow
+              </Heading>
+            )}
+          </Flex>
 
-        {!isSidebarCollapsed && (
-          <>
-            <VStack spacing={4} align="stretch" mb={4}>
-              <Button colorScheme="blue" onClick={() => {
-                setCurrentFolder('');
-                onNewNoteOpen();
-              }}>
-                New Note
-              </Button>
-              <Button colorScheme="gray" onClick={() => onNewFolderOpen()}>
-                New Folder
-              </Button>
-              <Input type="file" ref={fileInputRef} onChange={handleImport} display="none" />
-              <Button colorScheme="teal" onClick={() => fileInputRef.current.click()}>
-                Import
-              </Button>
+          {/* Middle Section: Content */}
+          <Box 
+            flex={1} 
+            overflowY="auto" 
+            overflowX="hidden" 
+            display={isSidebarCollapsed ? 'none' : 'block'}
+            p={2}
+          >
+            <VStack spacing={4} align="stretch">
+              <HStack spacing={2}>
+                <Button
+                  colorScheme="blue"
+                  onClick={() => {
+                    setCurrentFolder('');
+                    onNewNoteOpen();
+                  }}
+                  leftIcon={<AddIcon />}
+                  flex={1}
+                  size="sm"
+                >
+                  New Note
+                </Button>
+                <Button colorScheme="gray" onClick={onNewFolderOpen} flex={1} size="sm">
+                  New Folder
+                </Button>
+              </HStack>
+              <InputGroup size="sm">
+                <InputLeftElement pointerEvents="none">
+                  <SearchIcon color="gray.300" />
+                </InputLeftElement>
+                <Input
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </InputGroup>
             </VStack>
-
-            <Box mt={6} overflowY="auto" flexGrow={1}>
+            <Box mt={4}>
               {isLoading ? (
                 <Flex justify="center" align="center" h="100%">
                   <Spinner />
                 </Flex>
-              ) : documents.length === 0 ? (
-                <Flex direction="column" justify="center" align="center" h="100%">
-                  <Text fontSize="sm" color="gray.500" textAlign="center">
-                    No documents or folders found. Create a new one above.
-                  </Text>
-                </Flex>
               ) : (
                 <FileTree
-                  items={documents}
+                  items={filteredDocuments}
                   onSelect={fetchDocumentContent}
-                  onRename={(item) => {
-                    setItemToRename(item);
-                    setNewNoteName(item.name);
-                    onRenameOpen();
-                  }}
-                  onDelete={(item) => {
-                    setItemToDelete(item);
-                    onDeleteOpen();
-                  }}
-                  onNewNoteInFolder={(path) => {
-                    setCurrentFolder(path);
-                    setNewNoteName('');
-                    onNewNoteOpen();
-                  }}
-                  onNewFolder={(path) => {
-                    setFolderToCreateIn(path);
-                    setNewFolderName('');
-                    onNewFolderOpen();
-                  }}
-                  onExportItem={(item) => {
-                      const url = `${API_URL}/export/${item.path}`;
-                      window.open(url, '_blank');
-                  }}
+                  onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); onRenameOpen(); }}
+                  onDelete={(item) => { setItemToDelete(item); onDeleteOpen(); }}
+                  onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); onNewNoteOpen(); }}
+                  onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); onNewFolderOpen(); }}
+                  onExportItem={(item) => { window.open(`${API_URL}/export/${item.path}`, '_blank'); }}
                   selectedDoc={selectedDoc}
                   onSelectFolder={setCurrentFolder}
-                  onMoveItem={(item) => {
-                    setItemToMove(item);
-                    setDestinationFolder('');
-                    onMoveOpen();
-                  }}
+                  onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); onMoveOpen(); }}
                 />
               )}
             </Box>
-          </>
-        )}
+          </Box>
+          
+          {/* Bottom Section: Settings */}
+          <Flex p={2} justifyContent={isSidebarCollapsed ? 'center' : 'flex-start'} >
+            <IconButton
+              icon={<SettingsIcon />}
+              onClick={onSettingsOpen}
+              variant="ghost"
+              aria-label="Settings"
+            />
+          </Flex>
+
+        </Flex>
 
         {/* Resizer Handle */}
-        <Box
-          position="absolute"
-          top="0"
-          right="0"
-          bottom="0"
-          width="5px"
-          cursor="col-resize"
-          onMouseDown={startResizing}
-          _hover={{ bg: 'gray.300' }}
-        />
-      </Box>
+        {!isSidebarCollapsed && (
+          <Box
+            position="absolute"
+            top="0"
+            right="0"
+            bottom="0"
+            width="5px"
+            cursor="col-resize"
+            onMouseDown={startResizing}
+            _hover={{ bg: 'gray.300' }}
+          />
+        )}
+      </Flex>
 
       {/* Main Content Area */}
       <Flex flexGrow={1} bg={mainBg} p={8} direction="column">
         {selectedDoc ? (
           <>
-            <Heading as="h2" size="xl" mb={4} color="gray.600">
+            <Heading as="h2" size="xl" mb={4} color={headingColor}>
               {selectedDoc}
             </Heading>
-            <Box flexGrow={1} mb={4} p={4} borderWidth="1px" borderRadius="lg" bg="white">
+            <Box flexGrow={1} mb={4} borderWidth="1px" borderRadius="lg" bg="white" overflow="hidden">
               <MDEditor
                 value={markdown}
                 onChange={setMarkdown}
-                height="calc(100vh - 200px)"
+                height="calc(100vh - 150px)"
                 preview="edit"
                 data-color-mode="light"
               />
@@ -606,7 +679,7 @@ function App() {
           </>
         ) : (
           <Flex flexGrow={1} justify="center" align="center" direction="column">
-            <Heading as="h3" size="md" mb={2}>
+            <Heading as="h3" size="md" mb={2} color={welcomeHeadingColor}>
               Welcome!
             </Heading>
             <Text color="gray.500">
@@ -737,6 +810,32 @@ function App() {
           <ModalFooter>
             <Button onClick={onMoveClose} mr={3}>Cancel</Button>
             <Button colorScheme="blue" onClick={handleMove}>Move</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      
+      {/* Settings Modal */}
+      <Modal isOpen={isSettingsOpen} onClose={onSettingsClose}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Settings</ModalHeader>
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+                <Text fontWeight="bold">Import</Text>
+                <Text fontSize="sm">Import notes from a .md or .zip file.</Text>
+                <Input type="file" ref={fileInputRef} onChange={handleImport} display="none" />
+                <Button colorScheme="teal" onClick={() => fileInputRef.current.click()}>
+                    Import
+                </Button>
+                <Text fontWeight="bold">Export</Text>
+                <Text fontSize="sm">Export all notes as a .zip file.</Text>
+                <Button colorScheme="blue" onClick={handleExportAll}>
+                    Export All
+                </Button>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={onSettingsClose}>Close</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
