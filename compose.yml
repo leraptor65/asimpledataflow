@@ -1,0 +1,13 @@
+services:
+  asimpledataflow:
+    # This is the image that users will pull from your Docker Hub registry.
+    image: leraptor65/asimpledataflow:latest
+    container_name: asimpledataflow
+    restart: unless-stopped
+    ports:
+      # The app will be accessible at http://localhost:8000
+      - "8000:8000"
+    volumes:
+      # Map a local folder to the container's data directory.
+      # Change `./data` to an absolute path for persistent storage (e.g., /srv/asimpledataflow/data).
+      - ./data:/app/data

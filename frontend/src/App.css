@@ -1,0 +1,129 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f0f2f5;
+}
+
+.App {
+  text-align: center;
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+  margin-bottom: 20px;
+}
+
+.container {
+  display: flex;
+  height: calc(100vh - 80px); /* Adjust based on header height */
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.sidebar {
+  width: 250px;
+  background-color: #fff;
+  border-right: 1px solid #ddd;
+  padding: 20px;
+  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+  overflow-y: auto;
+}
+
+.sidebar h3 {
+  margin-top: 0;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sidebar li {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  text-align: left;
+  word-wrap: break-word;
+}
+
+.sidebar li:hover {
+  background-color: #f0f0f0;
+}
+
+.editor-container {
+  flex-grow: 1;
+  padding: 20px;
+  background-color: #fff;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+}
+
+.editor-container h2 {
+  text-align: left;
+  margin-top: 0;
+}
+
+.w-md-editor-toolbar, .w-md-editor-preview {
+  background-color: #f9fafb !important;
+}
+
+.w-md-editor-edit, .w-md-editor-input {
+  background-color: #ffffff !important;
+}
+
+.save-button {
+  margin-top: 10px;
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.save-button:hover {
+  background-color: #0056b3;
+}
+
+.new-doc-form {
+  margin-bottom: 20px;
+  display: flex;
+  gap: 5px;
+}
+
+.new-doc-form input {
+  flex-grow: 1;
+  padding: 8px;
+  box-sizing: border-box;
+  border: 1px solid #ddd;
+}
+
+.new-doc-form button {
+  padding: 8px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.new-doc-form button:hover {
+  background-color: #218838;
+}
+
+.no-doc-selected {
+  text-align: center;
+  margin-top: 50px;
+  color: #888;
+}
+
+.error {
+  color: red;
+  margin-bottom: 15px;
+  font-weight: bold;
+}

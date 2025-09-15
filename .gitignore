@@ -1,0 +1,19 @@
+# Dependency directories
+backend/vendor/
+frontend/node_modules/
+
+# Build artifacts
+frontend/build/
+backend/main
+.dockerignore
+
+# Your local development data
+# Ignore all files and subdirectories inside the data folder...
+data/*
+# ...but don't ignore the data folder itself by tracking this placeholder.
+!data/.gitkeep
+
+# Editor/OS temporary files
+.DS_Store
+.env
+.vscode/
