@@ -583,9 +583,30 @@ function App() {
     }
   };
 
-  const handleExportAll = () => {
-    const url = `${API_URL}/export/`;
-    window.open(url, '_blank');
+  const handleExportAll = async () => {
+    try {
+      const response = await fetch(`${API_URL}/export/`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'export.zip';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      toast({
+        title: "Error exporting documents",
+        description: e.message,
+        status: "error",
+        duration: 9000,
+        isClosable: true,
+      });
+    }
   };
 
   const fetchTrash = async () => {
