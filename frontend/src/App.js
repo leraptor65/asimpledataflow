@@ -36,9 +36,38 @@ import {
   InputGroup,
   InputLeftElement,
   Spacer,
+  Grid,
 } from '@chakra-ui/react';
-import { ChevronRightIcon, ChevronDownIcon, SearchIcon, SettingsIcon, AddIcon, HamburgerIcon } from '@chakra-ui/icons';
-import { FolderIcon, FileIcon } from './icons';
+import { ChevronRightIcon, ChevronDownIcon, SearchIcon, SettingsIcon, AddIcon, HamburgerIcon, RepeatIcon, DeleteIcon } from '@chakra-ui/icons';
+import { FolderIcon, FileIcon, HomeIcon, TrashIcon } from './icons';
+
+
+const TableOfContents = ({ title, items, onSelect }) => {
+  const hoverBg = useColorModeValue('gray.100', 'gray.700');
+  return (
+    <Box>
+      <Heading as="h2" size="xl" mb={4}>{title}</Heading>
+      <Grid templateColumns="repeat(auto-fill, minmax(200px, 1fr))" gap={6}>
+        {items.map((item) => (
+          <Box
+            key={item.path}
+            p={4}
+            borderWidth="1px"
+            borderRadius="lg"
+            _hover={{ bg: hoverBg, cursor: 'pointer' }}
+            onClick={() => onSelect(item)}
+          >
+            <HStack>
+              <Icon as={item.type === 'file' ? FileIcon : FolderIcon} />
+              <Text>{item.name.replace(/\.md$/, '')}</Text>
+            </HStack>
+          </Box>
+        ))}
+      </Grid>
+    </Box>
+  );
+};
+
 
 // Recursive component to render file/folder tree
 const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, selectedDoc, onSelectFolder, onMoveItem }) => {
@@ -83,7 +112,7 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
                   onSelect(item.path);
                 } else {
                   toggleFolder(item.path);
-                  onSelectFolder(item.path);
+                  onSelectFolder(item);
                 }
               }}
               backgroundColor={selectedDoc === item.path ? selectedBg : 'transparent'}
@@ -93,8 +122,10 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
               }}
               flex="1"
               pl={2}
+              h="auto"
+              py={2}
             >
-              <HStack spacing={1}>
+              <HStack spacing={1} align="start">
                 {item.type === 'folder' && (
                   <Icon
                     as={openFolders[item.path] ? ChevronDownIcon : ChevronRightIcon}
@@ -102,10 +133,11 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
                       e.stopPropagation();
                       toggleFolder(item.path);
                     }}
+                    mt={1}
                   />
                 )}
-                <Icon as={item.type === 'file' ? FileIcon : FolderIcon} mr={2} />
-                <Text isTruncated maxW="180px">{item.name.replace(/\.md$/, '')}</Text>
+                <Icon as={item.type === 'file' ? FileIcon : FolderIcon} mr={2} mt={1} />
+                <Text whiteSpace="normal" wordBreak="break-word" textAlign="left">{item.name.replace(/\.md$/, '')}</Text>
               </HStack>
             </Button>
             <Menu>
@@ -186,12 +218,81 @@ const FolderList = ({ items, onSelect, selectedPath }) => {
   );
 };
 
+const TrashView = ({ items, onRestore, onDelete }) => {
+  const hoverBg = useColorModeValue('gray.100', 'gray.700');
+  
+  if (items.length === 0) {
+    return (
+      <Flex direction="column" align="center" justify="center" h="100%">
+        <Heading as="h2" size="xl" mb={4}>Recycle Bin</Heading>
+        <Text>The recycle bin is empty.</Text>
+      </Flex>
+    )
+  }
+
+  return (
+    <Box>
+      <Heading as="h2" size="xl" mb={4}>Recycle Bin</Heading>
+      <VStack spacing={2} align="stretch">
+        {items.map((item) => (
+          <Flex
+            key={item.path}
+            p={2}
+            borderWidth="1px"
+            borderRadius="lg"
+            _hover={{ bg: hoverBg }}
+            justify="space-between"
+            align="center"
+          >
+            <HStack>
+              <Icon as={item.type === 'file' ? FileIcon : FolderIcon} />
+              <Text>{item.name}</Text>
+            </HStack>
+            <HStack>
+              <IconButton icon={<RepeatIcon/>} aria-label="Restore" onClick={() => onRestore(item.path)} />
+              <IconButton icon={<DeleteIcon/>} aria-label="Delete Permanently" colorScheme="red" onClick={() => onDelete(item.path)} />
+            </HStack>
+          </Flex>
+        ))}
+      </VStack>
+    </Box>
+  );
+}
+
+const SettingsView = ({ onImport, onExportAll, fileInputRef }) => {
+  return (
+    <Box>
+      <Heading as="h2" size="xl" mb={4}>Settings</Heading>
+      <VStack spacing={8} align="stretch">
+        <Box>
+          <Heading as="h3" size="lg" mb={2}>Import</Heading>
+          <Text fontSize="md" mb={4}>Import notes from a .md or .zip file.</Text>
+          <Input type="file" ref={fileInputRef} onChange={onImport} display="none" />
+          <Button colorScheme="teal" onClick={() => fileInputRef.current.click()}>
+              Import
+          </Button>
+        </Box>
+        <Box>
+          <Heading as="h3" size="lg" mb={2}>Export</Heading>
+          <Text fontSize="md" mb={4}>Export all notes as a .zip file.</Text>
+          <Button colorScheme="blue" onClick={onExportAll}>
+              Export All
+          </Button>
+        </Box>
+      </VStack>
+    </Box>
+  )
+}
+
 function App() {
   const [documents, setDocuments] = useState([]);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [markdown, setMarkdown] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [view, setView] = useState('welcome'); // 'welcome', 'document', 'folder', 'trash'
+  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [trashedItems, setTrashedItems] = useState([]);
   const toast = useToast();
 
   const { isOpen: isRenameOpen, onOpen: onRenameOpen, onClose: onRenameClose } = useDisclosure();
@@ -199,7 +300,6 @@ function App() {
   const { isOpen: isNewFolderOpen, onOpen: onNewFolderOpen, onClose: onNewFolderClose } = useDisclosure();
   const { isOpen: isNewNoteOpen, onOpen: onNewNoteOpen, onClose: onNewNoteClose } = useDisclosure();
   const { isOpen: isMoveOpen, onOpen: onMoveOpen, onClose: onMoveClose } = useDisclosure();
-  const { isOpen: isSettingsOpen, onOpen: onSettingsOpen, onClose: onSettingsClose } = useDisclosure();
 
   const [itemToRename, setItemToRename] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
@@ -207,7 +307,6 @@ function App() {
   const [newFolderName, setNewFolderName] = useState('');
   const [newNoteName, setNewNoteName] = useState('');
   const [currentFolder, setCurrentFolder] = useState('');
-  const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [itemToMove, setItemToMove] = useState(null);
   const [destinationFolder, setDestinationFolder] = useState('');
@@ -215,6 +314,10 @@ function App() {
   const API_URL = '/api';
   const cancelRef = React.useRef();
   const fileInputRef = React.useRef();
+  
+  // You can change this value to adjust the sidebar width
+  const SIDEBAR_WIDTH = 320;
+
 
   useEffect(() => {
     fetchDocuments();
@@ -251,6 +354,7 @@ function App() {
       const content = await response.text();
       setSelectedDoc(id);
       setMarkdown(content);
+      setView('document');
     } catch (e) {
       toast({
         title: "Error fetching content",
@@ -350,7 +454,12 @@ function App() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = async (item) => {
+    setItemToDelete(item);
+    onDeleteOpen();
+  };
+  
+  const confirmDelete = async () => {
     if (!itemToDelete) return;
     try {
       const response = await fetch(`${API_URL}/documents/${itemToDelete.path}`, {
@@ -362,12 +471,10 @@ function App() {
       onDeleteClose();
       fetchDocuments();
       if (selectedDoc === itemToDelete.path) {
+        setView('welcome');
         setSelectedDoc(null);
       }
-      if (itemToDelete.type === 'folder' && itemToDelete.path === currentFolder) {
-        setCurrentFolder('');
-      }
-      toast({ title: `${itemToDelete.name} deleted.`, status: "success", duration: 3000, isClosable: true });
+      toast({ title: `${itemToDelete.name} moved to recycle bin.`, status: "success", duration: 3000, isClosable: true });
     } catch (e) {
       toast({ title: "Error deleting item", description: e.message, status: "error", duration: 9000, isClosable: true });
     }
@@ -481,6 +588,41 @@ function App() {
     window.open(url, '_blank');
   };
 
+  const fetchTrash = async () => {
+    try {
+      const response = await fetch(`${API_URL}/trash`);
+      if (!response.ok) throw new Error("Could not fetch trash items");
+      const data = await response.json();
+      setTrashedItems(data || []);
+      setView('trash');
+    } catch (e) {
+      toast({ title: "Error", description: e.message, status: "error" });
+    }
+  }
+
+  const handleRestoreItem = async (id) => {
+    try {
+      const response = await fetch(`${API_URL}/trash/restore/${id}`, { method: 'PUT' });
+      if (!response.ok) throw new Error("Could not restore item");
+      toast({ title: "Item restored", status: "success" });
+      fetchTrash();
+      fetchDocuments();
+    } catch(e) {
+      toast({ title: "Error", description: e.message, status: "error" });
+    }
+  }
+
+  const handleDeletePermanently = async (id) => {
+    try {
+      const response = await fetch(`${API_URL}/trash/delete/${id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error("Could not delete item permanently");
+      toast({ title: "Item permanently deleted", status: "success" });
+      fetchTrash();
+    } catch(e) {
+      toast({ title: "Error", description: e.message, status: "error" });
+    }
+  }
+
   const filteredDocuments = useMemo(() => {
     if (!searchQuery) {
       return documents;
@@ -510,33 +652,58 @@ function App() {
   const sidebarBg = useColorModeValue("gray.50", "gray.800");
   const mainBg = useColorModeValue("white", "gray.900");
   const headingColor = useColorModeValue("gray.600", "gray.200");
-  const welcomeHeadingColor = useColorModeValue("gray.700", "gray.200");
   const sidebarBorderColor = useColorModeValue("gray.200", "gray.700");
 
-  const resize = useCallback((e) => {
-    const newWidth = e.clientX;
-    if (newWidth > 200 && newWidth < 800) {
-      setSidebarWidth(newWidth);
+  const handleTocSelect = (item) => {
+    if (item.type === 'file') {
+      fetchDocumentContent(item.path);
+    } else {
+      setSelectedFolder(item);
+      setView('folder');
     }
-  }, []);
+  };
 
-  const stopResizing = useCallback(() => {
-    document.removeEventListener('mousemove', resize);
-    document.removeEventListener('mouseup', stopResizing);
-  }, [resize]);
+  const renderMainContent = () => {
+    switch (view) {
+      case 'document':
+        return (
+          <>
+            <Heading as="h2" size="xl" mb={4} color={headingColor}>
+              {selectedDoc}
+            </Heading>
+            <Box flexGrow={1} mb={4} borderWidth="1px" borderRadius="lg" bg="white" overflow="hidden">
+              <MDEditor
+                value={markdown}
+                onChange={setMarkdown}
+                height="calc(100vh - 150px)"
+                preview="edit"
+                data-color-mode="light"
+              />
+            </Box>
+            <Button colorScheme="green" onClick={saveDocument} alignSelf="flex-end">
+              Save Document
+            </Button>
+          </>
+        );
+      case 'folder':
+        return <TableOfContents title={selectedFolder.name} items={selectedFolder.children} onSelect={handleTocSelect} />;
+      case 'trash':
+        return <TrashView items={trashedItems} onRestore={handleRestoreItem} onDelete={handleDeletePermanently} />;
+      case 'settings':
+        return <SettingsView onImport={handleImport} onExportAll={handleExportAll} fileInputRef={fileInputRef} />;
+      case 'welcome':
+      default:
+        return <TableOfContents title="Home" items={documents} onSelect={handleTocSelect} />;
+    }
+  };
 
-  const startResizing = useCallback((e) => {
-    e.preventDefault();
-    document.addEventListener('mousemove', resize);
-    document.addEventListener('mouseup', stopResizing);
-  }, [resize, stopResizing]);
 
   return (
     <Flex h="100vh">
       {/* Sidebar */}
       <Flex
         as="aside"
-        w={isSidebarCollapsed ? '56px' : `${sidebarWidth}px`}
+        w={isSidebarCollapsed ? '56px' : `${SIDEBAR_WIDTH}px`}
         minW={isSidebarCollapsed ? '56px' : '200px'}
         bg={sidebarBg}
         borderRight="1px"
@@ -556,7 +723,7 @@ function App() {
           <Flex
             alignItems="center"
             p={2}
-            justifyContent={isSidebarCollapsed ? 'center' : 'flex-start'}
+            justifyContent="space-between"
           >
             <IconButton
               icon={<HamburgerIcon />}
@@ -565,11 +732,29 @@ function App() {
               aria-label="Toggle Sidebar"
             />
             {!isSidebarCollapsed && (
-              <Heading as="h1" size="md" color="gray.600" ml={4} noOfLines={1}>
+              <>
+              <Heading as="h1" size="md" color="gray.600" ml={4} noOfLines={1} flex={1}>
                 A Simple Data Flow
               </Heading>
+              <IconButton
+                  icon={<HomeIcon />}
+                  onClick={() => { setView('welcome'); setSelectedDoc(null); }}
+                  variant="ghost"
+                  aria-label="Home"
+                />
+              </>
             )}
           </Flex>
+          {isSidebarCollapsed && (
+            <VStack mt={4}>
+               <IconButton
+                  icon={<HomeIcon />}
+                  onClick={() => { setView('welcome'); setSelectedDoc(null); }}
+                  variant="ghost"
+                  aria-label="Home"
+                />
+            </VStack>
+          )}
 
           {/* Middle Section: Content */}
           <Box 
@@ -617,76 +802,57 @@ function App() {
                 <FileTree
                   items={filteredDocuments}
                   onSelect={fetchDocumentContent}
+                  onSelectFolder={(folder) => {
+                    setSelectedFolder(folder);
+                    setView('folder');
+                  }}
                   onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); onRenameOpen(); }}
-                  onDelete={(item) => { setItemToDelete(item); onDeleteOpen(); }}
+                  onDelete={handleDelete}
                   onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); onNewNoteOpen(); }}
                   onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); onNewFolderOpen(); }}
                   onExportItem={(item) => { window.open(`${API_URL}/export/${item.path}`, '_blank'); }}
                   selectedDoc={selectedDoc}
-                  onSelectFolder={setCurrentFolder}
                   onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); onMoveOpen(); }}
                 />
               )}
             </Box>
           </Box>
           
+          <Spacer />
           {/* Bottom Section: Settings */}
-          <Flex p={2} justifyContent={isSidebarCollapsed ? 'center' : 'flex-start'} >
-            <IconButton
-              icon={<SettingsIcon />}
-              onClick={onSettingsOpen}
-              variant="ghost"
-              aria-label="Settings"
-            />
-          </Flex>
-
+          <VStack p={2} spacing={2} align={isSidebarCollapsed ? 'center' : 'stretch'}>
+            {isSidebarCollapsed ? (
+                <>
+                    <IconButton
+                        icon={<TrashIcon />}
+                        onClick={fetchTrash}
+                        variant="ghost"
+                        aria-label="Recycle Bin"
+                    />
+                    <IconButton
+                        icon={<SettingsIcon />}
+                        onClick={() => setView('settings')}
+                        variant="ghost"
+                        aria-label="Settings"
+                    />
+                </>
+            ) : (
+                <>
+                    <Button leftIcon={<TrashIcon />} variant="ghost" justifyContent="flex-start" onClick={fetchTrash}>
+                        Recycle Bin
+                    </Button>
+                    <Button leftIcon={<SettingsIcon />} variant="ghost" justifyContent="flex-start" onClick={() => setView('settings')}>
+                        Settings
+                    </Button>
+                </>
+            )}
+            </VStack>
         </Flex>
-
-        {/* Resizer Handle */}
-        {!isSidebarCollapsed && (
-          <Box
-            position="absolute"
-            top="0"
-            right="0"
-            bottom="0"
-            width="5px"
-            cursor="col-resize"
-            onMouseDown={startResizing}
-            _hover={{ bg: 'gray.300' }}
-          />
-        )}
       </Flex>
 
       {/* Main Content Area */}
       <Flex flexGrow={1} bg={mainBg} p={8} direction="column">
-        {selectedDoc ? (
-          <>
-            <Heading as="h2" size="xl" mb={4} color={headingColor}>
-              {selectedDoc}
-            </Heading>
-            <Box flexGrow={1} mb={4} borderWidth="1px" borderRadius="lg" bg="white" overflow="hidden">
-              <MDEditor
-                value={markdown}
-                onChange={setMarkdown}
-                height="calc(100vh - 150px)"
-                preview="edit"
-                data-color-mode="light"
-              />
-            </Box>
-            <Button colorScheme="green" onClick={saveDocument} alignSelf="flex-end">
-              Save Document
-            </Button>
-          </>
-        ) : (
-          <Flex flexGrow={1} justify="center" align="center" direction="column">
-            <Heading as="h3" size="md" mb={2} color={welcomeHeadingColor}>
-              Welcome!
-            </Heading>
-            <Text color="gray.500">
-              Select a document from the sidebar to start editing, or create a new one.
-            </Text>
-          </Flex>
-        )}
+        {renderMainContent()}
       </Flex>
 
       {/* Modals for rename, delete, and new folder */}
@@ -751,13 +917,13 @@ function App() {
               Delete {itemToDelete?.type}
             </AlertDialogHeader>
             <AlertDialogBody>
-              Are you sure you want to delete "{itemToDelete?.name}"? This action cannot be undone.
+              Are you sure you want to move "{itemToDelete?.name}" to the recycle bin?
             </AlertDialogBody>
             <AlertDialogFooter>
               <Button ref={cancelRef} onClick={onDeleteClose}>
                 Cancel
               </Button>
-              <Button colorScheme="red" onClick={handleDelete} ml={3}>
+              <Button colorScheme="red" onClick={confirmDelete} ml={3}>
                 Delete
               </Button>
             </AlertDialogFooter>
@@ -813,33 +979,6 @@ function App() {
           </ModalFooter>
         </ModalContent>
       </Modal>
-      
-      {/* Settings Modal */}
-      <Modal isOpen={isSettingsOpen} onClose={onSettingsClose}>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Settings</ModalHeader>
-          <ModalBody>
-            <VStack spacing={4} align="stretch">
-                <Text fontWeight="bold">Import</Text>
-                <Text fontSize="sm">Import notes from a .md or .zip file.</Text>
-                <Input type="file" ref={fileInputRef} onChange={handleImport} display="none" />
-                <Button colorScheme="teal" onClick={() => fileInputRef.current.click()}>
-                    Import
-                </Button>
-                <Text fontWeight="bold">Export</Text>
-                <Text fontSize="sm">Export all notes as a .zip file.</Text>
-                <Button colorScheme="blue" onClick={handleExportAll}>
-                    Export All
-                </Button>
-            </VStack>
-          </ModalBody>
-          <ModalFooter>
-            <Button onClick={onSettingsClose}>Close</Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
     </Flex>
   );
 }

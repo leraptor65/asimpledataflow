@@ -10,12 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 )
 
 // The path to the directory where markdown files are stored.
 var dataDir = "/app/data"
+var trashDir = "/app/data/.trash"
 
 // FileSystemItem represents a file or folder in the directory tree.
 type FileSystemItem struct {
@@ -29,12 +31,15 @@ func main() {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		log.Fatalf("failed to create data directory: %v", err)
 	}
+	if err := os.MkdirAll(trashDir, 0755); err != nil {
+		log.Fatalf("failed to create trash directory: %v", err)
+	}
 
 	r := mux.NewRouter()
 	api := r.PathPrefix("/api/").Subrouter()
 
 	api.HandleFunc("/documents/{id:.*}/rename", renameDocumentOrFolder).Methods("PUT")
-	api.HandleFunc("/documents/{id:.*}", deleteDocumentOrFolder).Methods("DELETE")
+	api.HandleFunc("/documents/{id:.*}", moveItemToTrash).Methods("DELETE")
 	api.HandleFunc("/documents/{id:.*}", getDocument).Methods("GET")
 	api.HandleFunc("/documents/{id:.*}", saveDocument).Methods("PUT")
 
@@ -42,6 +47,11 @@ func main() {
 	api.HandleFunc("/folders/{id:.*}", createFolder).Methods("POST")
 	api.HandleFunc("/export/{id:.*}", exportHandler).Methods("GET")
 	api.HandleFunc("/import", importHandler).Methods("POST")
+
+	api.HandleFunc("/trash", listTrashItems).Methods("GET")
+	api.HandleFunc("/trash/restore/{id:.*}", restoreItemFromTrash).Methods("PUT")
+	api.HandleFunc("/trash/delete/{id:.*}", deleteItemPermanently).Methods("DELETE")
+
 
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("/app/frontend/build")))
 	log.Printf("A Simple Data Flow server listening on port 8000...")
@@ -64,12 +74,13 @@ func buildTree(basePath string) (FileSystemItem, error) {
 		if path == basePath {
 			return nil
 		}
-
+		
 		relPath, err := filepath.Rel(basePath, path)
 		if err != nil {
 			return err
 		}
-
+		
+		// Ignore hidden files and the trash directory
 		if strings.HasPrefix(relPath, ".") {
 			return nil
 		}
@@ -94,9 +105,13 @@ func buildTree(basePath string) (FileSystemItem, error) {
 					if !strings.HasSuffix(itemPath, ".md") {
 						return nil
 					}
-					itemPath = strings.TrimSuffix(itemPath, ".md")
 				}
 				newItem := FileSystemItem{Name: segment, Path: itemPath, Type: itemType}
+				if itemType == "file" {
+					newItem.Name = strings.TrimSuffix(segment, ".md")
+					newItem.Path = strings.TrimSuffix(itemPath, ".md")
+				}
+
 				current.Children = append(current.Children, newItem)
 				current = &current.Children[len(current.Children)-1]
 			}
@@ -174,41 +189,40 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-func deleteDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
+func moveItemToTrash(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	itemPath := vars["id"]
 	filePath := filepath.Join(dataDir, itemPath)
-	
+
 	if !strings.HasPrefix(filePath, dataDir) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-	
+
 	info, err := os.Stat(filePath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			info, err = os.Stat(filePath + ".md")
-			if err != nil {
-				http.Error(w, "item not found", http.StatusNotFound)
-				return
-			}
-			filePath = filePath + ".md"
-		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		// If it doesn't exist, try with .md for files
+		info, err = os.Stat(filePath + ".md")
+		if err != nil {
+			http.Error(w, "item not found", http.StatusNotFound)
 			return
 		}
+		filePath += ".md"
 	}
 
-	if info.IsDir() {
-		if err := os.RemoveAll(filePath); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	trashPath := filepath.Join(trashDir, filepath.Base(filePath))
+	// Add a timestamp to avoid name collisions
+	if !info.IsDir() {
+		ext := filepath.Ext(trashPath)
+		trashPath = trashPath[0:len(trashPath)-len(ext)] + "_" + time.Now().Format("20060102150405") + ext
 	} else {
-		if err := os.Remove(filePath); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+		trashPath += "_" + time.Now().Format("20060102150405")
+	}
+
+
+	if err := os.Rename(filePath, trashPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -247,7 +261,7 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 		oldFilePath = oldFilePath + ".md"
 	}
 	
-	if strings.HasSuffix(oldFilePath, ".md") && !strings.HasSuffix(newFilePath, ".md") {
+	if !info.IsDir() { // It's a file, ensure new path has .md
 		newFilePath = newFilePath + ".md"
 	}
 	
@@ -289,7 +303,44 @@ func createFolder(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-// exportHandler exports a single file or a zip of the entire data directory.
+func zipSource(source string, zipWriter *zip.Writer) error {
+	return filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
+
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(writer, file)
+		return err
+	})
+}
+
+// exportHandler exports a single file or a zip of a folder or the entire data directory.
 func exportHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	path := vars["id"]
@@ -297,64 +348,49 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 	if path == "" { // Export all as zip
 		w.Header().Set("Content-Type", "application/zip")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"export.zip\"")
-
 		zipWriter := zip.NewWriter(w)
 		defer zipWriter.Close()
-
-		filepath.Walk(dataDir, func(p string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if info.IsDir() {
-				return nil
-			}
-
-			relPath, err := filepath.Rel(dataDir, p)
-			if err != nil {
-				return err
-			}
-
-			header, err := zip.FileInfoHeader(info)
-			if err != nil {
-				return err
-			}
-			header.Name = relPath
-
-			writer, err := zipWriter.CreateHeader(header)
-			if err != nil {
-				return err
-			}
-
-			reader, err := os.Open(p)
-			if err != nil {
-				return err
-			}
-			defer reader.Close()
-
-			_, err = io.Copy(writer, reader)
-			return err
-		})
+		zipSource(dataDir, zipWriter)
 		return
 	}
 
-	// For single file export
-	filePath := filepath.Join(dataDir, path)
-	if !strings.HasPrefix(filePath, dataDir) {
+	// For single file or folder export
+	itemPath := filepath.Join(dataDir, path)
+	if !strings.HasPrefix(itemPath, dataDir) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 	
-	file, err := os.Open(filePath + ".md")
+	info, err := os.Stat(itemPath)
+	// Try with .md for files
+	if os.IsNotExist(err) {
+		itemPath += ".md"
+		info, err = os.Stat(itemPath)
+	}
+
 	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
+		http.Error(w, "Item not found", http.StatusNotFound)
 		return
 	}
-	defer file.Close()
 
-	w.Header().Set("Content-Type", "text/markdown")
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+ filepath.Base(path) +".md\"")
-	io.Copy(w, file)
+	if info.IsDir() { // Export folder as zip
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+ info.Name() +".zip\"")
+		zipWriter := zip.NewWriter(w)
+		defer zipWriter.Close()
+		zipSource(itemPath, zipWriter)
+	} else { // Export single file
+		file, err := os.Open(itemPath)
+		if err != nil {
+			http.Error(w, "File not found", http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+
+		w.Header().Set("Content-Type", "text/markdown")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+ info.Name() +"\"")
+		io.Copy(w, file)
+	}
 }
 
 func importHandler(w http.ResponseWriter, r *http.Request) {
@@ -425,4 +461,86 @@ func importHandler(w http.ResponseWriter, r *http.Request) {
 	
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+
+// Recycle Bin Handlers
+
+func listTrashItems(w http.ResponseWriter, r *http.Request) {
+    var items []FileSystemItem
+    files, err := os.ReadDir(trashDir)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    for _, file := range files {
+        itemType := "file"
+        if file.IsDir() {
+            itemType = "folder"
+        }
+        items = append(items, FileSystemItem{
+            Name: file.Name(),
+            Path: file.Name(),
+            Type: itemType,
+        })
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(items)
+}
+
+func restoreItemFromTrash(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    id := vars["id"]
+    trashPath := filepath.Join(trashDir, id)
+    restorePath := filepath.Join(dataDir, id)
+
+	// Remove timestamp from filename if it exists
+	ext := filepath.Ext(restorePath)
+	if ext != "" {
+		base := restorePath[0:len(restorePath)-len(ext)]
+		if len(base) > 15 {
+			timestamp := base[len(base)-15:]
+			if _, err := time.Parse("_20060102150405", timestamp); err == nil {
+				restorePath = base[0:len(base)-15] + ext
+			}
+		}
+	} else if len(restorePath) > 15 { // For directories
+		timestamp := restorePath[len(restorePath)-15:]
+		if _, err := time.Parse("_20060102150405", timestamp); err == nil {
+			restorePath = restorePath[0:len(restorePath)-15]
+		}
+	}
+
+
+    if err := os.Rename(trashPath, restorePath); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    w.WriteHeader(http.StatusOK)
+}
+
+func deleteItemPermanently(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    id := vars["id"]
+    trashPath := filepath.Join(trashDir, id)
+
+    info, err := os.Stat(trashPath)
+    if err != nil {
+        http.Error(w, "item not found in trash", http.StatusNotFound)
+        return
+    }
+
+    if info.IsDir() {
+        err = os.RemoveAll(trashPath)
+    } else {
+        err = os.Remove(trashPath)
+    }
+
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    w.WriteHeader(http.StatusOK)
 }
