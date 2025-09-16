@@ -1,5 +1,35 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import MDEditor from '@uiw/react-md-editor';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  MDXEditor,
+  headingsPlugin,
+  listsPlugin,
+  quotePlugin,
+  thematicBreakPlugin,
+  toolbarPlugin,
+  UndoRedo,
+  BoldItalicUnderlineToggles,
+  linkPlugin,
+  linkDialogPlugin,
+  imagePlugin,
+  tablePlugin,
+  frontmatterPlugin,
+  codeBlockPlugin,
+  codeMirrorPlugin,
+  directivesPlugin,
+  diffSourcePlugin,
+  markdownShortcutPlugin,
+  ListsToggle,
+  CreateLink,
+  InsertImage,
+  InsertTable,
+  InsertThematicBreak,
+  InsertCodeBlock,
+  ChangeCodeMirrorLanguage,
+  ConditionalContents,
+  Separator,
+  BlockTypeSelect,
+  DiffSourceToggleWrapper,
+} from '@mdxeditor/editor';
 import {
   Box,
   Flex,
@@ -8,6 +38,7 @@ import {
   Text,
   Button,
   Input,
+  useColorMode,
   useColorModeValue,
   Spinner,
   useToast,
@@ -37,6 +68,7 @@ import {
   InputLeftElement,
   Spacer,
   Grid,
+  Switch,
 } from '@chakra-ui/react';
 import { ChevronRightIcon, ChevronDownIcon, SearchIcon, SettingsIcon, AddIcon, HamburgerIcon, RepeatIcon, DeleteIcon } from '@chakra-ui/icons';
 import { FolderIcon, FileIcon, HomeIcon, TrashIcon } from './icons';
@@ -294,6 +326,10 @@ function App() {
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [trashedItems, setTrashedItems] = useState([]);
   const toast = useToast();
+  const { colorMode, toggleColorMode } = useColorMode();
+  const editorRef = useRef(null);
+  const [diffMarkdown, setDiffMarkdown] = useState('');
+
 
   const { isOpen: isRenameOpen, onOpen: onRenameOpen, onClose: onRenameClose } = useDisclosure();
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
@@ -354,6 +390,7 @@ function App() {
       const content = await response.text();
       setSelectedDoc(id);
       setMarkdown(content);
+      setDiffMarkdown(content);
       setView('document');
     } catch (e) {
       toast({
@@ -365,16 +402,23 @@ function App() {
       });
     }
   };
+  
+  useEffect(() => {
+    if (view === 'document' && editorRef.current) {
+      editorRef.current.setMarkdown(markdown);
+    }
+  }, [markdown, view]);
 
   const saveDocument = async () => {
     if (!selectedDoc) return;
     try {
+      const currentMarkdown = editorRef.current?.getMarkdown();
       const response = await fetch(`${API_URL}/documents/${selectedDoc}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'text/markdown',
         },
-        body: markdown,
+        body: currentMarkdown,
       });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -693,12 +737,75 @@ function App() {
               {selectedDoc}
             </Heading>
             <Box flexGrow={1} mb={4} borderWidth="1px" borderRadius="lg" bg="white" overflow="hidden">
-              <MDEditor
-                value={markdown}
+            <MDXEditor
+                markdown={markdown}
                 onChange={setMarkdown}
-                height="calc(100vh - 150px)"
-                preview="edit"
-                data-color-mode="light"
+                ref={editorRef}
+                contentEditableClassName="prose"
+                plugins={[
+                  toolbarPlugin({
+                    toolbarContents: () => (
+                      <DiffSourceToggleWrapper>
+                        <ConditionalContents
+                          options={[
+                            {
+                              when: (editor) => editor?.editorType === 'codeblock',
+                              contents: () => <ChangeCodeMirrorLanguage />
+                            },
+                            {
+                              fallback: () => (
+                                <>
+                                  <UndoRedo />
+                                  <Separator />
+                                  <BoldItalicUnderlineToggles />
+                                  <Separator />
+                                  <ListsToggle />
+                                  <Separator />
+                                  <BlockTypeSelect />
+                                  <Separator />
+                                  <CreateLink />
+                                  <InsertImage />
+                                  <InsertTable />
+                                  <InsertThematicBreak />
+                                  <Separator />
+                                  <InsertCodeBlock />
+                                </>
+                              )
+                            }
+                          ]}
+                        />
+                      </DiffSourceToggleWrapper>
+                    )
+                  }),
+                  headingsPlugin(),
+                  listsPlugin(),
+                  quotePlugin(),
+                  thematicBreakPlugin(),
+                  linkPlugin(),
+                  linkDialogPlugin(),
+                  imagePlugin({
+                    imageUploadHandler: () => {
+                      return Promise.resolve('https://picsum.photos/200/300')
+                    }
+                  }),
+                  tablePlugin(),
+                  frontmatterPlugin(),
+                  codeBlockPlugin({ defaultCodeBlockLanguage: 'txt' }),
+                  codeMirrorPlugin({
+                    codeBlockLanguages: {
+                      js: 'JavaScript',
+                      css: 'CSS',
+                      txt: 'text',
+                      tsx: 'TypeScript',
+                      bash: 'Bash',
+                      powershell: 'PowerShell',
+                      python: 'Python',
+                      html: 'HTML',
+                    }
+                  }),
+                  diffSourcePlugin({ diffMarkdown: diffMarkdown, viewMode: 'rich-text' }),
+                  markdownShortcutPlugin()
+                ]}
               />
             </Box>
             <Button colorScheme="green" onClick={saveDocument} alignSelf="flex-end">
@@ -757,6 +864,7 @@ function App() {
               <Heading as="h1" size="md" color="gray.600" ml={4} noOfLines={1} flex={1}>
                 A Simple Data Flow
               </Heading>
+              <Switch isChecked={colorMode === 'dark'} onChange={toggleColorMode} />
               <IconButton
                   icon={<HomeIcon />}
                   onClick={() => { setView('welcome'); setSelectedDoc(null); }}
