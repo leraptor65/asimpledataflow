@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 // The path to the directory where markdown files are stored.
 var dataDir = "/app/data"
 var trashDir = "/app/data/.trash"
+var imagesDir = "/app/data/images"
 
 // FileSystemItem represents a file or folder in the directory tree.
 type FileSystemItem struct {
@@ -34,6 +36,9 @@ func main() {
 	if err := os.MkdirAll(trashDir, 0755); err != nil {
 		log.Fatalf("failed to create trash directory: %v", err)
 	}
+	if err := os.MkdirAll(imagesDir, 0755); err != nil {
+		log.Fatalf("failed to create images directory: %v", err)
+	}
 
 	r := mux.NewRouter()
 	api := r.PathPrefix("/api/").Subrouter()
@@ -47,15 +52,53 @@ func main() {
 	api.HandleFunc("/folders/{id:.*}", createFolder).Methods("POST")
 	api.HandleFunc("/export/{id:.*}", exportHandler).Methods("GET")
 	api.HandleFunc("/import", importHandler).Methods("POST")
+	api.HandleFunc("/images", uploadImageHandler).Methods("POST")
 
 	api.HandleFunc("/trash", listTrashItems).Methods("GET")
 	api.HandleFunc("/trash/restore/{id:.*}", restoreItemFromTrash).Methods("PUT")
 	api.HandleFunc("/trash/delete/{id:.*}", deleteItemPermanently).Methods("DELETE")
 
-
+	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", http.FileServer(http.Dir(imagesDir))))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("/app/frontend/build")))
 	log.Printf("A Simple Data Flow server listening on port 8000...")
 	log.Fatal(http.ListenAndServe(":8000", r))
+}
+
+// uploadImageHandler handles image uploads for the markdown editor.
+func uploadImageHandler(w http.ResponseWriter, r *http.Request) {
+	file, header, err := r.FormFile("image") // The editor uses 'image' as the field name
+	if err != nil {
+		http.Error(w, "Could not get image from form", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Create a unique filename to prevent collisions
+	ext := filepath.Ext(header.Filename)
+	uniqueFileName := time.Now().Format("20060102150405_") + strings.TrimSuffix(header.Filename, ext) + ext
+	filePath := filepath.Join(imagesDir, uniqueFileName)
+
+	// Create the file
+	outFile, err := os.Create(filePath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer outFile.Close()
+
+	// Copy the uploaded file to the destination
+	_, err = io.Copy(outFile, file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return the URL of the uploaded image
+	response := map[string]string{
+		"url": "/images/" + uniqueFileName,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func buildTree(basePath string) (FileSystemItem, error) {
@@ -102,14 +145,16 @@ func buildTree(basePath string) (FileSystemItem, error) {
 				itemType := "folder"
 				if !info.IsDir() && i == len(segments)-1 {
 					itemType = "file"
-					if !strings.HasSuffix(itemPath, ".md") {
+					ext := filepath.Ext(itemPath)
+					if ext != ".md" && ext != ".txt" && ext != ".png" && ext != ".jpg" && ext != ".jpeg" {
 						return nil
 					}
 				}
-				newItem := FileSystemItem{Name: segment, Path: itemPath, Type: itemType}
+				newItem := FileSystemItem{Name: segment, Path: itemPath, Type: itemType, Children: []FileSystemItem{}}
 				if itemType == "file" {
-					newItem.Name = strings.TrimSuffix(segment, ".md")
-					newItem.Path = strings.TrimSuffix(itemPath, ".md")
+					ext := filepath.Ext(segment)
+					newItem.Name = strings.TrimSuffix(segment, ext)
+					newItem.Path = strings.TrimSuffix(itemPath, ext)
 				}
 
 				current.Children = append(current.Children, newItem)
@@ -118,6 +163,17 @@ func buildTree(basePath string) (FileSystemItem, error) {
 		}
 
 		return nil
+	})
+
+	// Sort children so files come before folders
+	sort.SliceStable(root.Children, func(i, j int) bool {
+		if root.Children[i].Type == "file" && root.Children[j].Type == "folder" {
+			return true
+		}
+		if root.Children[i].Type == "folder" && root.Children[j].Type == "file" {
+			return false
+		}
+		return root.Children[i].Name < root.Children[j].Name
 	})
 
 	return root, err
@@ -138,13 +194,23 @@ func listDocuments(w http.ResponseWriter, r *http.Request) {
 
 func getDocument(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	docID := vars["id"] + ".md"
+	docID := vars["id"]
 	filePath := filepath.Join(dataDir, docID)
-	
+
 	if !strings.HasPrefix(filePath, dataDir) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
+
+	// Check for supported file types and serve them with the correct content type
+	extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
+	for _, ext := range extensions {
+		if _, err := os.Stat(filePath + ext); err == nil {
+			filePath = filePath + ext
+			break
+		}
+	}
+
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -155,20 +221,45 @@ func getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/markdown")
+	ext := filepath.Ext(filePath)
+	contentType := "text/plain"
+	switch ext {
+	case ".md":
+		contentType = "text/markdown"
+	case ".txt":
+		contentType = "text/plain"
+	case ".png":
+		contentType = "image/png"
+	case ".jpg", ".jpeg":
+		contentType = "image/jpeg"
+	}
+
+	w.Header().Set("Content-Type", contentType)
 	w.Write(content)
 }
 
 func saveDocument(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	docID := vars["id"] + ".md"
+	docID := vars["id"]
 	filePath := filepath.Join(dataDir, docID)
-	
+
 	if !strings.HasPrefix(filePath, dataDir) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
+
+	// Case-insensitive check
 	dir := filepath.Dir(filePath)
+	files, err := os.ReadDir(dir)
+	if err == nil {
+		for _, file := range files {
+			if strings.EqualFold(file.Name(), filepath.Base(filePath)+".md") || strings.EqualFold(file.Name(), filepath.Base(filePath)+".txt") {
+				http.Error(w, "a file or folder with the same name already exists (case-insensitive)", http.StatusConflict)
+				return
+			}
+		}
+	}
+
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -180,7 +271,8 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.WriteFile(filePath, content, 0644); err != nil {
+	// Save as .md by default, can be extended for other types
+	if err := os.WriteFile(filePath+".md", content, 0644); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -201,13 +293,21 @@ func moveItemToTrash(w http.ResponseWriter, r *http.Request) {
 
 	info, err := os.Stat(filePath)
 	if err != nil {
-		// If it doesn't exist, try with .md for files
-		info, err = os.Stat(filePath + ".md")
-		if err != nil {
+		// If it doesn't exist, try with supported extensions
+		extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
+		found := false
+		for _, ext := range extensions {
+			if _, err := os.Stat(filePath + ext); err == nil {
+				filePath += ext
+				info, _ = os.Stat(filePath)
+				found = true
+				break
+			}
+		}
+		if !found {
 			http.Error(w, "item not found", http.StatusNotFound)
 			return
 		}
-		filePath += ".md"
 	}
 
 	trashPath := filepath.Join(trashDir, filepath.Base(filePath))
@@ -218,7 +318,6 @@ func moveItemToTrash(w http.ResponseWriter, r *http.Request) {
 	} else {
 		trashPath += "_" + time.Now().Format("20060102150405")
 	}
-
 
 	if err := os.Rename(filePath, trashPath); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -250,36 +349,57 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid paths", http.StatusBadRequest)
 		return
 	}
-	
+
+	// Case-insensitive check
+	dir := filepath.Dir(newFilePath)
+	files, err := os.ReadDir(dir)
+	if err == nil {
+		for _, file := range files {
+			if strings.EqualFold(file.Name(), filepath.Base(newFilePath)) || strings.EqualFold(file.Name(), filepath.Base(newFilePath)+".md") {
+				http.Error(w, "a file or folder with the same name already exists (case-insensitive)", http.StatusConflict)
+				return
+			}
+		}
+	}
+
 	info, err := os.Stat(oldFilePath)
 	if err != nil {
-		info, err = os.Stat(oldFilePath + ".md")
-		if err != nil || info.IsDir() {
+		extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
+		found := false
+		for _, ext := range extensions {
+			if _, err := os.Stat(oldFilePath + ext); err == nil {
+				oldFilePath += ext
+				info, _ = os.Stat(oldFilePath)
+				found = true
+				break
+			}
+		}
+		if !found || info.IsDir() {
 			http.Error(w, "item not found", http.StatusNotFound)
 			return
 		}
-		oldFilePath = oldFilePath + ".md"
 	}
-	
-	if !info.IsDir() { // It's a file, ensure new path has .md
-		newFilePath = newFilePath + ".md"
+
+	if !info.IsDir() {
+		ext := filepath.Ext(oldFilePath)
+		newFilePath = newFilePath + ext
 	}
-	
+
 	if _, err := os.Stat(newFilePath); err == nil {
 		http.Error(w, "destination path already exists", http.StatusConflict)
 		return
 	}
-	
+
 	if err := os.MkdirAll(filepath.Dir(newFilePath), 0755); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	if err := os.Rename(oldFilePath, newFilePath); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -292,6 +412,18 @@ func createFolder(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(fullPath, dataDir) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
+	}
+
+	// Case-insensitive check
+	dir := filepath.Dir(fullPath)
+	files, err := os.ReadDir(dir)
+	if err == nil {
+		for _, file := range files {
+			if strings.EqualFold(file.Name(), filepath.Base(fullPath)) {
+				http.Error(w, "a file or folder with the same name already exists (case-insensitive)", http.StatusConflict)
+				return
+			}
+		}
 	}
 
 	if err := os.MkdirAll(fullPath, 0755); err != nil {
@@ -362,13 +494,23 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	info, err := os.Stat(itemPath)
-	// Try with .md for files
+	// Try with supported extensions
+	extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
+	found := false
 	if os.IsNotExist(err) {
-		itemPath += ".md"
-		info, err = os.Stat(itemPath)
+		for _, ext := range extensions {
+			if _, err := os.Stat(itemPath + ext); err == nil {
+				itemPath += ext
+				info, _ = os.Stat(itemPath)
+				found = true
+				break
+			}
+		}
+	} else {
+		found = true
 	}
 
-	if err != nil {
+	if err != nil && !found {
 		http.Error(w, "Item not found", http.StatusNotFound)
 		return
 	}
@@ -387,9 +529,8 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		defer file.Close()
 
-		w.Header().Set("Content-Type", "text/markdown")
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+ info.Name() +"\"")
-		io.Copy(w, file)
+		http.ServeFile(w, r, itemPath)
 	}
 }
 
@@ -446,7 +587,7 @@ func importHandler(w http.ResponseWriter, r *http.Request) {
 			io.Copy(writer, reader)
 		}
 		
-	} else if strings.HasSuffix(fileName, ".md") {
+	} else if strings.HasSuffix(fileName, ".md") || strings.HasSuffix(fileName, ".txt") {
 		outFile, err := os.Create(filePath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -455,7 +596,7 @@ func importHandler(w http.ResponseWriter, r *http.Request) {
 		defer outFile.Close()
 		io.Copy(outFile, file)
 	} else {
-		http.Error(w, "Only .md and .zip files are supported", http.StatusBadRequest)
+		http.Error(w, "Only .md, .txt, and .zip files are supported", http.StatusBadRequest)
 		return
 	}
 	

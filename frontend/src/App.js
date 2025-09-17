@@ -65,13 +65,22 @@ import {
     MinusSquareOutlined,
     PlusSquareOutlined,
 } from '@ant-design/icons';
-import { FolderIcon, FileIcon, HomeIcon, TrashIcon } from './icons';
+import { FolderIcon, HomeIcon, TrashIcon } from './icons';
 
 const { Header, Content, Sider } = Layout;
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
 
 const TableOfContents = ({ title, items, onSelect }) => {
+    if (!items || items.length === 0) {
+        return (
+            <div>
+                <Title level={2} style={{ marginBottom: '1rem' }}>{title}</Title>
+                <Empty description="This folder is empty." />
+            </div>
+        );
+    }
+
     return (
         <div>
             <Title level={2} style={{ marginBottom: '1rem' }}>{title}</Title>
@@ -83,7 +92,7 @@ const TableOfContents = ({ title, items, onSelect }) => {
                         onClick={() => onSelect(item)}
                     >
                         <Space>
-                            {item.type === 'file' ? <FileOutlined /> : <FolderOutlined />}
+                            {item.type === 'folder' ? <FolderOutlined /> : <FileOutlined />}
                             <Text>{item.name.replace(/\.md$/, '')}</Text>
                         </Space>
                     </Card>
@@ -111,8 +120,8 @@ const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFold
         const title = (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                 <Space>
-                    {item.type === 'folder' ? <FolderOutlined /> : <FileOutlined />}
-                    <span>{item.name.replace(/\.md$/, '')}</span>
+                    {item.type === 'folder' ? <FolderOutlined /> : null}
+                    <span>{item.name}</span>
                 </Space>
                 <Dropdown
                     menu={{ items: menuItems }}
@@ -289,12 +298,13 @@ function App() {
     const [markdown, setMarkdown] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [view, setView] = useState('welcome'); // 'welcome', 'document', 'folder', 'trash', 'settings'
+    const [view, setView] = useState('welcome'); // 'welcome', 'document', 'folder', 'trash', 'settings', 'image', 'text'
     const [selectedFolder, setSelectedFolder] = useState(null);
     const [trashedItems, setTrashedItems] = useState([]);
     const [isDarkMode, setIsDarkMode] = useState(false);
     const editorRef = useRef(null);
     const [diffMarkdown, setDiffMarkdown] = useState('');
+    const [fileContent, setFileContent] = useState(null);
 
     const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
     const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
@@ -357,11 +367,25 @@ function App() {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            const content = await response.text();
+
+            const contentType = response.headers.get('Content-Type');
             setSelectedDoc(id);
-            setMarkdown(content);
-            setDiffMarkdown(content);
-            setView('document');
+
+            if (contentType.startsWith('image/')) {
+                const blob = await response.blob();
+                setFileContent(URL.createObjectURL(blob));
+                setView('image');
+            } else if (contentType === 'text/markdown') {
+                const content = await response.text();
+                setMarkdown(content);
+                setDiffMarkdown(content);
+                setView('document');
+            } else {
+                const content = await response.text();
+                setFileContent(content);
+                setView('text');
+            }
+
         } catch (e) {
             notification.error({
                 message: "Error fetching content",
@@ -667,6 +691,31 @@ function App() {
         return keys;
     };
 
+    const imageUploadHandler = async (image) => {
+        const formData = new FormData();
+        formData.append('image', image);
+
+        try {
+            const response = await fetch(`${API_URL}/images`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Upload failed with status: ${response.status}, ${errorText}`);
+            }
+
+            const json = await response.json();
+            return json.url;
+        } catch (e) {
+            notification.error({
+                message: "Image upload failed",
+                description: e.message,
+            });
+            throw e;
+        }
+    };
 
     const renderMainContent = () => {
         switch (view) {
@@ -725,11 +774,7 @@ function App() {
                                     thematicBreakPlugin(),
                                     linkPlugin(),
                                     linkDialogPlugin(),
-                                    imagePlugin({
-                                        imageUploadHandler: () => {
-                                            return Promise.resolve('https://picsum.photos/200/300')
-                                        }
-                                    }),
+                                    imagePlugin({ imageUploadHandler }),
                                     tablePlugin(),
                                     frontmatterPlugin(),
                                     codeBlockPlugin({ defaultCodeBlockLanguage: 'txt' }),
@@ -753,6 +798,28 @@ function App() {
                         <Button type="primary" onClick={saveDocument} style={{ alignSelf: 'flex-end', marginTop: '1rem' }}>
                             Save Document
                         </Button>
+                    </>
+                );
+            case 'image':
+                return (
+                    <>
+                        <Title level={2} style={{ marginBottom: '1rem' }}>
+                            {selectedDoc}
+                        </Title>
+                        <div style={{ flex: 1, textAlign: 'center' }}>
+                            <img src={fileContent} alt={selectedDoc} style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                        </div>
+                    </>
+                );
+            case 'text':
+                return (
+                    <>
+                        <Title level={2} style={{ marginBottom: '1rem' }}>
+                            {selectedDoc}
+                        </Title>
+                        <pre style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word', flex: 1 }}>
+                            {fileContent}
+                        </pre>
                     </>
                 );
             case 'folder':
@@ -842,7 +909,7 @@ function App() {
                                 </div>
                             )}
                         </div>
-                        <div style={{ flex: '1 1 auto', overflowY: 'auto', overflowX: 'hidden', padding: '0.5rem 1rem 0.5rem 0.5rem' }}>
+                        <div style={{ flex: '1 1 auto', overflowY: 'auto', overflowX: 'hidden', paddingRight: '8px', height: '100%' }}>
                             {!isSidebarCollapsed && (
                                 isLoading ? (
                                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
