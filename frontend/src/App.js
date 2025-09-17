@@ -1,1121 +1,945 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  MDXEditor,
-  headingsPlugin,
-  listsPlugin,
-  quotePlugin,
-  thematicBreakPlugin,
-  toolbarPlugin,
-  UndoRedo,
-  BoldItalicUnderlineToggles,
-  linkPlugin,
-  linkDialogPlugin,
-  imagePlugin,
-  tablePlugin,
-  frontmatterPlugin,
-  codeBlockPlugin,
-  codeMirrorPlugin,
-  diffSourcePlugin,
-  markdownShortcutPlugin,
-  ListsToggle,
-  CreateLink,
-  InsertImage,
-  InsertTable,
-  InsertThematicBreak,
-  InsertCodeBlock,
-  ChangeCodeMirrorLanguage,
-  ConditionalContents,
-  Separator,
-  BlockTypeSelect,
-  DiffSourceToggleWrapper,
+    MDXEditor,
+    headingsPlugin,
+    listsPlugin,
+    quotePlugin,
+    thematicBreakPlugin,
+    toolbarPlugin,
+    UndoRedo,
+    BoldItalicUnderlineToggles,
+    linkPlugin,
+    linkDialogPlugin,
+    imagePlugin,
+    tablePlugin,
+    frontmatterPlugin,
+    codeBlockPlugin,
+    codeMirrorPlugin,
+    diffSourcePlugin,
+    markdownShortcutPlugin,
+    ListsToggle,
+    CreateLink,
+    InsertImage,
+    InsertTable,
+    InsertThematicBreak,
+    InsertCodeBlock,
+    ChangeCodeMirrorLanguage,
+    ConditionalContents,
+    Separator,
+    BlockTypeSelect,
+    DiffSourceToggleWrapper,
 } from '@mdxeditor/editor';
 import {
-  Box,
-  Flex,
-  Heading,
-  VStack,
-  Text,
-  Button,
-  Input,
-  useColorMode,
-  useColorModeValue,
-  Spinner,
-  useToast,
-  Modal,
-  ModalOverlay,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  FormControl,
-  FormLabel,
-  useDisclosure,
-  AlertDialog,
-  AlertDialogBody,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogContent,
-  AlertDialogOverlay,
-  Icon,
-  HStack,
-  Menu,
-  MenuButton,
-  MenuList,
-  MenuItem,
-  IconButton,
-  InputGroup,
-  InputLeftElement,
-  Spacer,
-  Grid,
-  Switch,
-} from '@chakra-ui/react';
-import { ChevronRightIcon, ChevronDownIcon, SearchIcon, SettingsIcon, AddIcon, HamburgerIcon, RepeatIcon, DeleteIcon } from '@chakra-ui/icons';
+    Layout,
+    Typography,
+    Button,
+    Input,
+    Spin,
+    Modal,
+    Form,
+    Menu,
+    Grid,
+    Switch,
+    notification,
+    Card,
+    Tree,
+    Space,
+    Tooltip,
+    Dropdown,
+    Empty,
+    ConfigProvider,
+    theme,
+} from 'antd';
+import {
+    SearchOutlined,
+    SettingOutlined,
+    PlusOutlined,
+    SyncOutlined,
+    DeleteOutlined,
+    MoreOutlined,
+    FolderOutlined,
+    FileOutlined,
+    CaretRightOutlined,
+    CaretDownOutlined,
+    HomeOutlined,
+    MinusSquareOutlined,
+    PlusSquareOutlined,
+} from '@ant-design/icons';
 import { FolderIcon, FileIcon, HomeIcon, TrashIcon } from './icons';
 
+const { Header, Content, Sider } = Layout;
+const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 
 const TableOfContents = ({ title, items, onSelect }) => {
-  const hoverBg = useColorModeValue('gray.100', 'gray.700');
-  return (
-    <Box>
-      <Heading as="h2" size="xl" mb={4}>{title}</Heading>
-      <Grid templateColumns="repeat(auto-fill, minmax(200px, 1fr))" gap={6}>
-        {items.map((item) => (
-          <Box
-            key={item.path}
-            p={4}
-            borderWidth="1px"
-            borderRadius="lg"
-            _hover={{ bg: hoverBg, cursor: 'pointer' }}
-            onClick={() => onSelect(item)}
-          >
-            <HStack>
-              <Icon as={item.type === 'file' ? FileIcon : FolderIcon} />
-              <Text>{item.name.replace(/\.md$/, '')}</Text>
-            </HStack>
-          </Box>
-        ))}
-      </Grid>
-    </Box>
-  );
+    return (
+        <div>
+            <Title level={2} style={{ marginBottom: '1rem' }}>{title}</Title>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+                {items.map((item) => (
+                    <Card
+                        key={item.path}
+                        hoverable
+                        onClick={() => onSelect(item)}
+                    >
+                        <Space>
+                            {item.type === 'file' ? <FileOutlined /> : <FolderOutlined />}
+                            <Text>{item.name.replace(/\.md$/, '')}</Text>
+                        </Space>
+                    </Card>
+                ))}
+            </div>
+        </div>
+    );
 };
 
+const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem }) => {
+    return items.map(item => {
+        const menuItems = [
+            ...(item.type === 'folder'
+                ? [
+                    { key: 'new-note', label: 'New Note', onClick: (e) => { e.domEvent.stopPropagation(); onNewNoteInFolder(item.path); } },
+                    { key: 'new-folder', label: 'New Folder', onClick: (e) => { e.domEvent.stopPropagation(); onNewFolder(item.path); } },
+                ]
+                : []),
+            { key: 'rename', label: 'Rename', onClick: (e) => { e.domEvent.stopPropagation(); onRename(item); } },
+            { key: 'delete', label: 'Delete', onClick: (e) => { e.domEvent.stopPropagation(); onDelete(item); } },
+            { key: 'move', label: 'Move', onClick: (e) => { e.domEvent.stopPropagation(); onMoveItem(item); } },
+            { key: 'export', label: 'Export', onClick: (e) => { e.domEvent.stopPropagation(); onExportItem(item); } },
+        ];
 
-// Recursive component to render file/folder tree
-const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, selectedDoc, onSelectFolder, onMoveItem }) => {
-  const [openFolders, setOpenFolders] = useState({});
-  const hoverBg = useColorModeValue('gray.200', 'gray.600');
-  const selectedBg = useColorModeValue('blue.500', 'blue.500');
-  const selectedHoverBg = useColorModeValue('blue.600', 'blue.600');
+        const title = (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                <Space>
+                    {item.type === 'folder' ? <FolderOutlined /> : <FileOutlined />}
+                    <span>{item.name.replace(/\.md$/, '')}</span>
+                </Space>
+                <Dropdown
+                    menu={{ items: menuItems }}
+                    trigger={['click']}
+                >
+                    <Button type="text" icon={<MoreOutlined />} size="small" onClick={(e) => e.stopPropagation()} />
+                </Dropdown>
+            </div>
+        );
 
-  const toggleFolder = (path) => {
-    setOpenFolders((prev) => ({
-      ...prev,
-      [path]: !prev[path],
-    }));
-  };
+        const node = {
+            title,
+            key: item.path,
+        };
 
-  useEffect(() => {
-    // Open folders of the selected doc
-    if (selectedDoc) {
-      const parts = selectedDoc.split('/');
-      parts.pop(); // remove filename
-      let currentPath = '';
-      const newOpenFolders = {};
-      for (const part of parts) {
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-        newOpenFolders[currentPath] = true;
-      }
-      setOpenFolders(prev => ({ ...prev, ...newOpenFolders }));
-    }
-  }, [selectedDoc]);
+        if (item.children && item.children.length > 0) {
+            node.children = buildTreeData({ items: item.children, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem });
+        }
 
+        return node;
+    });
+};
 
-  return (
-    <VStack spacing={1} align="stretch">
-      {items.map((item) => (
-        <Box key={item.path} pl={item.path.split('/').length > 1 ? 4 : 0}>
-          <Flex align="center" justifyContent="space-between" _hover={{ bg: hoverBg }} borderRadius="md">
-            <Button
-              variant="ghost"
-              justifyContent="flex-start"
-              onClick={() => {
-                if (item.type === 'file') {
-                  onSelect(item.path);
-                } else {
-                  toggleFolder(item.path);
-                  onSelectFolder(item);
+const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, selectedDoc, onSelectFolder, onMoveItem, expandedKeys, setExpandedKeys }) => {
+
+    const treeData = useMemo(() => buildTreeData({ items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem }), [items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem]);
+
+    useEffect(() => {
+        if (selectedDoc) {
+            const parts = selectedDoc.split('/');
+            parts.pop();
+            let currentPath = '';
+            const keysToExpand = [];
+            for (const part of parts) {
+                currentPath = currentPath ? `${currentPath}/${part}` : part;
+                keysToExpand.push(currentPath);
+            }
+            setExpandedKeys(prev => [...new Set([...prev, ...keysToExpand])]);
+        }
+    }, [selectedDoc, setExpandedKeys]);
+
+    const handleSelect = (selectedKeys, { node }) => {
+        if (selectedKeys.length > 0) {
+            const selectedPath = selectedKeys[0];
+            let selectedItem;
+            const findItem = (currentItems) => {
+                for (const item of currentItems) {
+                    if (item.path === selectedPath) {
+                        selectedItem = item;
+                        return;
+                    }
+                    if (item.children) {
+                        findItem(item.children);
+                    }
+                    if (selectedItem) return;
                 }
-              }}
-              backgroundColor={selectedDoc === item.path ? selectedBg : 'transparent'}
-              color={selectedDoc === item.path ? 'white' : 'inherit'}
-              _hover={{
-                backgroundColor: selectedDoc === item.path ? selectedHoverBg : hoverBg,
-              }}
-              flex="1"
-              pl={2}
-              h="auto"
-              py={2}
-            >
-              <HStack spacing={1} align="start">
-                {item.type === 'folder' && (
-                  <Icon
-                    as={openFolders[item.path] ? ChevronDownIcon : ChevronRightIcon}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFolder(item.path);
-                    }}
-                    mt={1}
-                  />
-                )}
-                <Icon as={item.type === 'file' ? FileIcon : FolderIcon} mr={2} mt={1} />
-                <Text whiteSpace="normal" wordBreak="break-word" textAlign="left">{item.name.replace(/\.md$/, '')}</Text>
-              </HStack>
-            </Button>
-            <Menu>
-              <MenuButton as={Button} size="xs" variant="ghost">
-                ...
-              </MenuButton>
-              <MenuList>
-                {item.type === 'folder' && (
-                  <>
-                    <MenuItem onClick={() => onNewNoteInFolder(item.path)}>New Note</MenuItem>
-                    <MenuItem onClick={() => onNewFolder(item.path)}>New Folder</MenuItem>
-                  </>
-                )}
-                <MenuItem onClick={() => onRename(item)}>Rename</MenuItem>
-                <MenuItem onClick={() => onDelete(item)}>Delete</MenuItem>
-                <MenuItem onClick={() => onMoveItem(item)}>Move</MenuItem>
-                <MenuItem onClick={() => onExportItem(item)}>Export</MenuItem>
-              </MenuList>
-            </Menu>
-          </Flex>
-          {openFolders[item.path] && item.children && item.children.length > 0 && (
-            <Box pl={4}>
-              <FileTree
-                items={item.children}
-                onSelect={onSelect}
-                onRename={onRename}
-                onDelete={onDelete}
-                onNewNoteInFolder={onNewNoteInFolder}
-                onNewFolder={onNewFolder}
-                onExportItem={onExportItem}
-                selectedDoc={selectedDoc}
-                onSelectFolder={onSelectFolder}
-                onMoveItem={onMoveItem}
-              />
-            </Box>
-          )}
-        </Box>
-      ))}
-    </VStack>
-  );
+            };
+            findItem(items);
+
+            if (selectedItem) {
+                if (selectedItem.type === 'file') {
+                    onSelect(selectedPath);
+                } else {
+                    onSelectFolder(selectedItem);
+                    setExpandedKeys(keys => {
+                        const index = keys.indexOf(selectedPath);
+                        if (index > -1) {
+                            return [...keys.slice(0, index), ...keys.slice(index + 1)];
+                        }
+                        return [...keys, selectedPath];
+                    });
+                }
+            }
+        }
+    };
+
+    return (
+        <Tree
+            treeData={treeData}
+            onSelect={handleSelect}
+            selectedKeys={selectedDoc ? [selectedDoc] : []}
+            expandedKeys={expandedKeys}
+            onExpand={(keys) => setExpandedKeys(keys)}
+            showIcon={false}
+            switcherIcon={({ expanded }) => expanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
+            blockNode
+        />
+    );
 };
 
-const FolderList = ({ items, onSelect, selectedPath }) => {
-  return (
-    <VStack spacing={2} align="stretch">
-      <Button
-        variant="ghost"
-        justifyContent="flex-start"
-        onClick={() => onSelect('')}
-        colorScheme={selectedPath === '' ? 'blue' : 'gray'}
-      >
-        <HStack spacing={2}>
-          <Icon as={FolderIcon} mr={2} />
-          <Text>Root</Text>
-        </HStack>
-      </Button>
-      {items.map((item) => (
-        <Box key={item.path} pl={4}>
-          <Button
-            variant="ghost"
-            justifyContent="flex-start"
-            onClick={() => onSelect(item.path)}
-            colorScheme={selectedPath === item.path ? 'blue' : 'gray'}
-          >
-            <HStack spacing={2}>
-              <Icon as={FolderIcon} mr={2} />
-              <Text>{item.name}</Text>
-            </HStack>
-          </Button>
-          {item.children && (
-            <Box pl={4}>
-              <FolderList items={item.children.filter(child => child.type === 'folder')} onSelect={onSelect} selectedPath={selectedPath} />
-            </Box>
-          )}
-        </Box>
-      ))}
-    </VStack>
-  );
+const buildFolderTreeData = (items) => {
+    const folderItems = items.filter(item => item.type === 'folder');
+    return folderItems.map(item => {
+        const node = {
+            title: item.name,
+            key: item.path,
+            icon: <FolderOutlined />,
+        };
+        if (item.children && item.children.length > 0) {
+            const childFolders = buildFolderTreeData(item.children);
+            if (childFolders.length > 0) {
+                node.children = childFolders;
+            }
+        }
+        return node;
+    });
 };
+
 
 const TrashView = ({ items, onRestore, onDelete }) => {
-  const hoverBg = useColorModeValue('gray.100', 'gray.700');
-  
-  if (items.length === 0) {
+    if (items.length === 0) {
+        return <Empty description="The recycle bin is empty." />;
+    }
+
     return (
-      <Flex direction="column" align="center" justify="center" h="100%">
-        <Heading as="h2" size="xl" mb={4}>Recycle Bin</Heading>
-        <Text>The recycle bin is empty.</Text>
-      </Flex>
-    )
-  }
+        <div>
+            <Title level={2} style={{ marginBottom: '1rem' }}>Recycle Bin</Title>
+            <Space direction="vertical" style={{ width: '100%' }}>
+                {items.map((item) => (
+                    <Card key={item.path}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Space>
+                                {item.type === 'file' ? <FileOutlined /> : <FolderOutlined />}
+                                <Text>{item.name}</Text>
+                            </Space>
+                            <Space>
+                                <Tooltip title="Restore">
+                                    <Button icon={<SyncOutlined />} onClick={() => onRestore(item.path)} />
+                                </Tooltip>
+                                <Tooltip title="Delete Permanently">
+                                    <Button icon={<DeleteOutlined />} danger onClick={() => onDelete(item.path)} />
+                                </Tooltip>
+                            </Space>
+                        </div>
+                    </Card>
+                ))}
+            </Space>
+        </div>
+    );
+};
 
-  return (
-    <Box>
-      <Heading as="h2" size="xl" mb={4}>Recycle Bin</Heading>
-      <VStack spacing={2} align="stretch">
-        {items.map((item) => (
-          <Flex
-            key={item.path}
-            p={2}
-            borderWidth="1px"
-            borderRadius="lg"
-            _hover={{ bg: hoverBg }}
-            justify="space-between"
-            align="center"
-          >
-            <HStack>
-              <Icon as={item.type === 'file' ? FileIcon : FolderIcon} />
-              <Text>{item.name}</Text>
-            </HStack>
-            <HStack>
-              <IconButton icon={<RepeatIcon/>} aria-label="Restore" onClick={() => onRestore(item.path)} />
-              <IconButton icon={<DeleteIcon/>} aria-label="Delete Permanently" colorScheme="red" onClick={() => onDelete(item.path)} />
-            </HStack>
-          </Flex>
-        ))}
-      </VStack>
-    </Box>
-  );
-}
-
-const SettingsView = ({ onImport, onExportAll, fileInputRef, colorMode, toggleColorMode }) => {
-  return (
-    <Box>
-      <Heading as="h2" size="xl" mb={4}>Settings</Heading>
-      <VStack spacing={8} align="stretch">
-        <Box>
-          <Heading as="h3" size="lg" mb={2}>Appearance</Heading>
-          <Flex align="center">
-            <Text fontSize="md" mr={4}>Dark Mode</Text>
-            <Switch isChecked={colorMode === 'dark'} onChange={toggleColorMode} />
-          </Flex>
-        </Box>
-        <Box>
-          <Heading as="h3" size="lg" mb={2}>Import</Heading>
-          <Text fontSize="md" mb={4}>Import notes from a .md or .zip file.</Text>
-          <Input type="file" ref={fileInputRef} onChange={onImport} display="none" />
-          <Button colorScheme="teal" onClick={() => fileInputRef.current.click()}>
-              Import
-          </Button>
-        </Box>
-        <Box>
-          <Heading as="h3" size="lg" mb={2}>Export</Heading>
-          <Text fontSize="md" mb={4}>Export all notes as a .zip file.</Text>
-          <Button colorScheme="blue" onClick={onExportAll}>
-              Export All
-          </Button>
-        </Box>
-      </VStack>
-    </Box>
-  )
-}
+const SettingsView = ({ onImport, onExportAll, fileInputRef, toggleTheme, isDarkMode }) => {
+    return (
+        <div>
+            <Title level={2} style={{ marginBottom: '1rem' }}>Settings</Title>
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Card title="Appearance">
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <Text style={{ marginRight: '1rem' }}>Dark Mode</Text>
+                        <Switch checked={isDarkMode} onChange={toggleTheme} />
+                    </div>
+                </Card>
+                <Card title="Import">
+                    <Text style={{ marginBottom: '1rem', display: 'block' }}>Import notes from a .md or .zip file.</Text>
+                    <Input type="file" ref={fileInputRef} onChange={onImport} style={{ display: 'none' }} />
+                    <Button type="primary" onClick={() => fileInputRef.current.click()}>
+                        Import
+                    </Button>
+                </Card>
+                <Card title="Export">
+                    <Text style={{ marginBottom: '1rem', display: 'block' }}>Export all notes as a .zip file.</Text>
+                    <Button onClick={onExportAll}>
+                        Export All
+                    </Button>
+                </Card>
+            </Space>
+        </div>
+    );
+};
 
 function App() {
-  const [documents, setDocuments] = useState([]);
-  const [selectedDoc, setSelectedDoc] = useState(null);
-  const [markdown, setMarkdown] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [view, setView] = useState('welcome'); // 'welcome', 'document', 'folder', 'trash'
-  const [selectedFolder, setSelectedFolder] = useState(null);
-  const [trashedItems, setTrashedItems] = useState([]);
-  const toast = useToast();
-  const { colorMode, toggleColorMode } = useColorMode();
-  const editorRef = useRef(null);
-  const [diffMarkdown, setDiffMarkdown] = useState('');
+    const [documents, setDocuments] = useState([]);
+    const [selectedDoc, setSelectedDoc] = useState(null);
+    const [markdown, setMarkdown] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [view, setView] = useState('welcome'); // 'welcome', 'document', 'folder', 'trash', 'settings'
+    const [selectedFolder, setSelectedFolder] = useState(null);
+    const [trashedItems, setTrashedItems] = useState([]);
+    const [isDarkMode, setIsDarkMode] = useState(false);
+    const editorRef = useRef(null);
+    const [diffMarkdown, setDiffMarkdown] = useState('');
 
+    const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
+    const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+    const [isNewFolderModalVisible, setIsNewFolderModalVisible] = useState(false);
+    const [isNewNoteModalVisible, setIsNewNoteModalVisible] = useState(false);
+    const [isMoveModalVisible, setIsMoveModalVisible] = useState(false);
 
-  const { isOpen: isRenameOpen, onOpen: onRenameOpen, onClose: onRenameClose } = useDisclosure();
-  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
-  const { isOpen: isNewFolderOpen, onOpen: onNewFolderOpen, onClose: onNewFolderClose } = useDisclosure();
-  const { isOpen: isNewNoteOpen, onOpen: onNewNoteOpen, onClose: onNewNoteClose } = useDisclosure();
-  const { isOpen: isMoveOpen, onOpen: onMoveOpen, onClose: onMoveClose } = useDisclosure();
+    const [itemToRename, setItemToRename] = useState(null);
+    const [itemToDelete, setItemToDelete] = useState(null);
+    const [folderToCreateIn, setFolderToCreateIn] = useState('');
+    const [newFolderName, setNewFolderName] = useState('');
+    const [newNoteName, setNewNoteName] = useState('');
+    const [currentFolder, setCurrentFolder] = useState('');
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [itemToMove, setItemToMove] = useState(null);
+    const [destinationFolder, setDestinationFolder] = useState('');
+    const [expandedKeys, setExpandedKeys] = useState([]);
 
-  const [itemToRename, setItemToRename] = useState(null);
-  const [itemToDelete, setItemToDelete] = useState(null);
-  const [folderToCreateIn, setFolderToCreateIn] = useState('');
-  const [newFolderName, setNewFolderName] = useState('');
-  const [newNoteName, setNewNoteName] = useState('');
-  const [currentFolder, setCurrentFolder] = useState('');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [itemToMove, setItemToMove] = useState(null);
-  const [destinationFolder, setDestinationFolder] = useState('');
+    const API_URL = '/api';
+    const fileInputRef = React.useRef();
 
-  const API_URL = '/api';
-  const cancelRef = React.useRef();
-  const fileInputRef = React.useRef();
-  
-  // You can change this value to adjust the sidebar width
-  const SIDEBAR_WIDTH = 320;
+    const SIDEBAR_WIDTH = 320;
+    const screens = useBreakpoint();
 
-
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
-
-  const fetchDocuments = async () => {
-    try {
-      const response = await fetch(`${API_URL}/documents`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setDocuments(data);
-    } catch (e) {
-      toast({
-        title: "Error fetching documents",
-        description: e.message,
-        status: "error",
-        duration: 9000,
-        isClosable: true,
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const fetchDocumentContent = async (id) => {
-    if (!id) return;
-    try {
-      const response = await fetch(`${API_URL}/documents/${id}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const content = await response.text();
-      setSelectedDoc(id);
-      setMarkdown(content);
-      setDiffMarkdown(content);
-      setView('document');
-    } catch (e) {
-      toast({
-        title: "Error fetching content",
-        description: e.message,
-        status: "error",
-        duration: 9000,
-        isClosable: true,
-      });
-    }
-  };
-
-  const saveDocument = async () => {
-    if (!selectedDoc) return;
-    try {
-      const currentMarkdown = editorRef.current?.getMarkdown();
-      const response = await fetch(`${API_URL}/documents/${selectedDoc}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'text/markdown',
-        },
-        body: currentMarkdown,
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      toast({
-        title: "Document saved.",
-        status: "success",
-        duration: 3000,
-        isClosable: true,
-      });
-      fetchDocuments();
-    } catch (e) {
-      toast({
-        title: "Error saving document",
-        description: e.message,
-        status: "error",
-        duration: 9000,
-        isClosable: true,
-      });
-    }
-  };
-
-  const handleCreateNote = async () => {
-    if (!newNoteName) {
-      toast({ title: "Note name cannot be empty.", status: "warning", duration: 3000, isClosable: true });
-      return;
-    }
-    const finalPath = currentFolder ? `${currentFolder}/${newNoteName}` : newNoteName;
-    try {
-        const response = await fetch(`${API_URL}/documents/${finalPath}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'text/markdown' },
-            body: '# New Document\n\nWrite your content here.',
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        setNewNoteName('');
-        onNewNoteClose();
+    useEffect(() => {
         fetchDocuments();
-        fetchDocumentContent(finalPath);
-        toast({
-            title: "Note created.",
-            status: "success",
-            duration: 3000,
-            isClosable: true,
-        });
-    } catch (e) {
-        toast({
-            title: "Error creating note",
-            description: e.message,
-            status: "error",
-            duration: 9000,
-            isClosable: true,
-        });
-    }
-  };
-  
-  const handleRename = async () => {
-    if (!itemToRename || !newNoteName) return;
-    const newPath = newNoteName;
+    }, []);
 
-    try {
-      const response = await fetch(`${API_URL}/documents/${itemToRename.path}/rename`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPath: newPath }),
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      onRenameClose();
-      fetchDocuments();
-      toast({ title: `${itemToRename.name} renamed.`, status: "success", duration: 3000, isClosable: true });
-    } catch (e) {
-      toast({ title: "Error renaming item", description: e.message, status: "error", duration: 9000, isClosable: true });
-    }
-  };
-
-  const handleDelete = async (item) => {
-    setItemToDelete(item);
-    onDeleteOpen();
-  };
-  
-  const confirmDelete = async () => {
-    if (!itemToDelete) return;
-    try {
-      const response = await fetch(`${API_URL}/documents/${itemToDelete.path}`, {
-        method: 'DELETE',
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      onDeleteClose();
-      fetchDocuments();
-      if (selectedDoc === itemToDelete.path) {
-        setView('welcome');
-        setSelectedDoc(null);
-      }
-      toast({ title: `${itemToDelete.name} moved to recycle bin.`, status: "success", duration: 3000, isClosable: true });
-    } catch (e) {
-      toast({ title: "Error deleting item", description: e.message, status: "error", duration: 9000, isClosable: true });
-    }
-  };
-
-  const handleCreateFolder = async () => {
-    if (!newFolderName) {
-      toast({ title: "Folder name cannot be empty.", status: "warning", duration: 3000, isClosable: true });
-      return;
-    }
-    const fullPath = folderToCreateIn ? `${folderToCreateIn}/${newFolderName}` : newFolderName;
-    try {
-      const response = await fetch(`${API_URL}/folders/${fullPath}`, {
-        method: 'POST',
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      onNewFolderClose();
-      fetchDocuments();
-      toast({ title: "Folder created.", status: "success", duration: 3000, isClosable: true });
-    } catch (e) {
-      toast({ title: "Error creating folder", description: e.message, status: "error", duration: 9000, isClosable: true });
-    }
-  };
-  
-  const handleMove = async () => {
-    if (!itemToMove) return;
-
-    // Check if the item is being moved to its current location
-    const destinationPath = destinationFolder === '' ? '' : destinationFolder;
-    const currentDirectory = itemToMove.path.substring(0, itemToMove.path.lastIndexOf('/'));
-
-    if (destinationPath === currentDirectory) {
-        toast({
-            title: "Cannot move item to its current location.",
-            status: "error",
-            duration: 3000,
-            isClosable: true,
-        });
-        onMoveClose();
-        return;
-    }
-
-    const newPath = destinationFolder ? `${destinationFolder}/${itemToMove.name}` : itemToMove.name;
-
-    try {
-        const response = await fetch(`${API_URL}/documents/${itemToMove.path}/rename`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newPath: newPath }),
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+    const fetchDocuments = async () => {
+        try {
+            const response = await fetch(`${API_URL}/documents`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            setDocuments(data);
+        } catch (e) {
+            notification.error({
+                message: "Error fetching documents",
+                description: e.message,
+            });
+        } finally {
+            setIsLoading(false);
         }
-        onMoveClose();
-        fetchDocuments();
-        toast({
-            title: `${itemToMove.name} moved.`,
-            status: "success",
-            duration: 3000,
-            isClosable: true,
-        });
-    } catch (e) {
-        toast({
-            title: "Error moving item",
-            description: e.message,
-            status: "error",
-            duration: 9000,
-            isClosable: true,
-        });
-    }
-  };
-  
-  const handleImport = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-        const response = await fetch(`${API_URL}/import`, {
-            method: 'POST',
-            body: formData,
-        });
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-        }
-        toast({
-            title: "Import successful.",
-            status: "success",
-            duration: 3000,
-            isClosable: true,
-        });
-        fetchDocuments();
-    } catch (e) {
-        toast({
-            title: "Import failed.",
-            description: e.message,
-            status: "error",
-            duration: 9000,
-            isClosable: true,
-        });
-    }
-  };
-
-  const handleExportAll = async () => {
-    try {
-      const response = await fetch(`${API_URL}/export/`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'export.zip';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (e) {
-      toast({
-        title: "Error exporting documents",
-        description: e.message,
-        status: "error",
-        duration: 9000,
-        isClosable: true,
-      });
-    }
-  };
-
-  const fetchTrash = async () => {
-    try {
-      const response = await fetch(`${API_URL}/trash`);
-      if (!response.ok) throw new Error("Could not fetch trash items");
-      const data = await response.json();
-      setTrashedItems(data || []);
-      setView('trash');
-    } catch (e) {
-      toast({ title: "Error", description: e.message, status: "error" });
-    }
-  }
-
-  const handleRestoreItem = async (id) => {
-    try {
-      const response = await fetch(`${API_URL}/trash/restore/${id}`, { method: 'PUT' });
-      if (!response.ok) throw new Error("Could not restore item");
-      toast({ title: "Item restored", status: "success" });
-      fetchTrash();
-      fetchDocuments();
-    } catch(e) {
-      toast({ title: "Error", description: e.message, status: "error" });
-    }
-  }
-
-  const handleDeletePermanently = async (id) => {
-    try {
-      const response = await fetch(`${API_URL}/trash/delete/${id}`, { method: 'DELETE' });
-      if (!response.ok) throw new Error("Could not delete item permanently");
-      toast({ title: "Item permanently deleted", status: "success" });
-      fetchTrash();
-    } catch(e) {
-      toast({ title: "Error", description: e.message, status: "error" });
-    }
-  }
-
-  const filteredDocuments = useMemo(() => {
-    if (!searchQuery) {
-      return documents;
-    }
-  
-    const lowercasedQuery = searchQuery.toLowerCase();
-  
-    const filterItems = (items) => {
-      return items.reduce((acc, item) => {
-        if (item.type === 'folder') {
-          const filteredChildren = filterItems(item.children || []);
-          if (filteredChildren.length > 0 || item.name.toLowerCase().includes(lowercasedQuery)) {
-            acc.push({ ...item, children: filteredChildren });
-          }
-        } else { // type is 'file'
-          if (item.name.toLowerCase().includes(lowercasedQuery)) {
-            acc.push(item);
-          }
-        }
-        return acc;
-      }, []);
     };
-  
-    return filterItems(documents);
-  }, [documents, searchQuery]);
 
-  const sidebarBg = useColorModeValue("gray.50", "gray.800");
-  const mainBg = useColorModeValue("white", "gray.900");
-  const headingColor = useColorModeValue("gray.600", "gray.200");
-  const sidebarBorderColor = useColorModeValue("gray.200", "gray.700");
+    const fetchDocumentContent = async (id) => {
+        if (!id) return;
+        try {
+            const response = await fetch(`${API_URL}/documents/${id}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const content = await response.text();
+            setSelectedDoc(id);
+            setMarkdown(content);
+            setDiffMarkdown(content);
+            setView('document');
+        } catch (e) {
+            notification.error({
+                message: "Error fetching content",
+                description: e.message,
+            });
+        }
+    };
 
-  const handleTocSelect = (item) => {
-    if (item.type === 'file') {
-      fetchDocumentContent(item.path);
-    } else {
-      setSelectedFolder(item);
-      setView('folder');
-    }
-  };
+    const saveDocument = async () => {
+        if (!selectedDoc) return;
+        try {
+            const currentMarkdown = editorRef.current?.getMarkdown();
+            const response = await fetch(`${API_URL}/documents/${selectedDoc}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'text/markdown',
+                },
+                body: currentMarkdown,
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            notification.success({
+                message: "Document saved.",
+            });
+            fetchDocuments();
+        } catch (e) {
+            notification.error({
+                message: "Error saving document",
+                description: e.message,
+            });
+        }
+    };
 
-  const renderMainContent = () => {
-    switch (view) {
-      case 'document':
-        return (
-          <>
-            <Heading as="h2" size="xl" mb={4} color={headingColor}>
-              {selectedDoc}
-            </Heading>
-            <Box flexGrow={1} mb={4} borderWidth="1px" borderRadius="lg" bg="white" overflow="hidden">
-            <MDXEditor
-                key={selectedDoc}
-                markdown={markdown}
-                onChange={setMarkdown}
-                ref={editorRef}
-                className={colorMode === 'dark' ? 'dark-editor' : ''}
-                contentEditableClassName="prose"
-                plugins={[
-                  toolbarPlugin({
-                    toolbarContents: () => (
-                      <DiffSourceToggleWrapper>
-                        <ConditionalContents
-                          options={[
-                            {
-                              when: (editor) => editor?.editorType === 'codeblock',
-                              contents: () => <ChangeCodeMirrorLanguage />
-                            },
-                            {
-                              fallback: () => (
-                                <>
-                                  <UndoRedo />
-                                  <Separator />
-                                  <BoldItalicUnderlineToggles />
-                                  <Separator />
-                                  <ListsToggle />
-                                  <Separator />
-                                  <BlockTypeSelect />
-                                  <Separator />
-                                  <CreateLink />
-                                  <InsertImage />
-                                  <InsertTable />
-                                  <InsertThematicBreak />
-                                  <Separator />
-                                  <InsertCodeBlock />
-                                </>
-                              )
-                            }
-                          ]}
-                        />
-                      </DiffSourceToggleWrapper>
-                    )
-                  }),
-                  headingsPlugin(),
-                  listsPlugin(),
-                  quotePlugin(),
-                  thematicBreakPlugin(),
-                  linkPlugin(),
-                  linkDialogPlugin(),
-                  imagePlugin({
-                    imageUploadHandler: () => {
-                      return Promise.resolve('https://picsum.photos/200/300')
+    const handleCreateNote = async () => {
+        if (!newNoteName) {
+            notification.warning({ message: "Note name cannot be empty." });
+            return;
+        }
+        const finalPath = currentFolder ? `${currentFolder}/${newNoteName}` : newNoteName;
+        try {
+            const response = await fetch(`${API_URL}/documents/${finalPath}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'text/markdown' },
+                body: '# New Document\n\nWrite your content here.',
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            setNewNoteName('');
+            setIsNewNoteModalVisible(false);
+            fetchDocuments();
+            fetchDocumentContent(finalPath);
+            notification.success({
+                message: "Note created.",
+            });
+        } catch (e) {
+            notification.error({
+                message: "Error creating note",
+                description: e.message,
+            });
+        }
+    };
+
+    const handleRename = async () => {
+        if (!itemToRename || !newNoteName) return;
+        const newPath = newNoteName;
+
+        try {
+            const response = await fetch(`${API_URL}/documents/${itemToRename.path}/rename`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ newPath: newPath }),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            setIsRenameModalVisible(false);
+            fetchDocuments();
+            notification.success({ message: `${itemToRename.name} renamed.` });
+        } catch (e) {
+            notification.error({ message: "Error renaming item", description: e.message });
+        }
+    };
+
+    const handleDelete = (item) => {
+        setItemToDelete(item);
+        setIsDeleteModalVisible(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!itemToDelete) return;
+        try {
+            const response = await fetch(`${API_URL}/documents/${itemToDelete.path}`, {
+                method: 'DELETE',
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            setIsDeleteModalVisible(false);
+            fetchDocuments();
+            if (selectedDoc === itemToDelete.path) {
+                setView('welcome');
+                setSelectedDoc(null);
+            }
+            notification.success({ message: `${itemToDelete.name} moved to recycle bin.` });
+        } catch (e) {
+            notification.error({ message: "Error deleting item", description: e.message });
+        }
+    };
+
+    const handleCreateFolder = async () => {
+        if (!newFolderName) {
+            notification.warning({ message: "Folder name cannot be empty." });
+            return;
+        }
+        const fullPath = folderToCreateIn ? `${folderToCreateIn}/${newFolderName}` : newFolderName;
+        try {
+            const response = await fetch(`${API_URL}/folders/${fullPath}`, {
+                method: 'POST',
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            setIsNewFolderModalVisible(false);
+            fetchDocuments();
+            notification.success({ message: "Folder created." });
+        } catch (e) {
+            notification.error({ message: "Error creating folder", description: e.message });
+        }
+    };
+
+    const handleMove = async () => {
+        if (!itemToMove) return;
+
+        const destinationPath = destinationFolder === '' ? '' : destinationFolder;
+        const currentDirectory = itemToMove.path.substring(0, itemToMove.path.lastIndexOf('/'));
+
+        if (destinationPath === currentDirectory) {
+            notification.error({
+                message: "Cannot move item to its current location.",
+            });
+            setIsMoveModalVisible(false);
+            return;
+        }
+
+        const newPath = destinationFolder ? `${destinationFolder}/${itemToMove.name}` : itemToMove.name;
+
+        try {
+            const response = await fetch(`${API_URL}/documents/${itemToMove.path}/rename`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ newPath: newPath }),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            setIsMoveModalVisible(false);
+            fetchDocuments();
+            notification.success({
+                message: `${itemToMove.name} moved.`,
+            });
+        } catch (e) {
+            notification.error({
+                message: "Error moving item",
+                description: e.message,
+            });
+        }
+    };
+
+    const handleImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch(`${API_URL}/import`, {
+                method: 'POST',
+                body: formData,
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+            }
+            notification.success({
+                message: "Import successful.",
+            });
+            fetchDocuments();
+        } catch (e) {
+            notification.error({
+                message: "Import failed.",
+                description: e.message,
+            });
+        }
+    };
+
+    const handleExportAll = async () => {
+        try {
+            const response = await fetch(`${API_URL}/export/`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'export.zip';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (e) {
+            notification.error({
+                message: "Error exporting documents",
+                description: e.message,
+            });
+        }
+    };
+
+    const fetchTrash = async () => {
+        try {
+            const response = await fetch(`${API_URL}/trash`);
+            if (!response.ok) throw new Error("Could not fetch trash items");
+            const data = await response.json();
+            setTrashedItems(data || []);
+            setView('trash');
+        } catch (e) {
+            notification.error({ message: "Error", description: e.message });
+        }
+    };
+
+    const handleRestoreItem = async (id) => {
+        try {
+            const response = await fetch(`${API_URL}/trash/restore/${id}`, { method: 'PUT' });
+            if (!response.ok) throw new Error("Could not restore item");
+            notification.success({ message: "Item restored" });
+            fetchTrash();
+            fetchDocuments();
+        } catch (e) {
+            notification.error({ message: "Error", description: e.message });
+        }
+    };
+
+    const handleDeletePermanently = async (id) => {
+        try {
+            const response = await fetch(`${API_URL}/trash/delete/${id}`, { method: 'DELETE' });
+            if (!response.ok) throw new Error("Could not delete item permanently");
+            notification.success({ message: "Item permanently deleted" });
+            fetchTrash();
+        } catch (e) {
+            notification.error({ message: "Error", description: e.message });
+        }
+    };
+
+    const filteredDocuments = useMemo(() => {
+        if (!searchQuery) {
+            return documents;
+        }
+
+        const lowercasedQuery = searchQuery.toLowerCase();
+
+        const filterItems = (items) => {
+            return items.reduce((acc, item) => {
+                if (item.type === 'folder') {
+                    const filteredChildren = filterItems(item.children || []);
+                    if (filteredChildren.length > 0 || item.name.toLowerCase().includes(lowercasedQuery)) {
+                        acc.push({ ...item, children: filteredChildren });
                     }
-                  }),
-                  tablePlugin(),
-                  frontmatterPlugin(),
-                  codeBlockPlugin({ defaultCodeBlockLanguage: 'txt' }),
-                  codeMirrorPlugin({
-                    codeBlockLanguages: {
-                      js: 'JavaScript',
-                      css: 'CSS',
-                      txt: 'text',
-                      tsx: 'TypeScript',
-                      bash: 'Bash',
-                      powershell: 'PowerShell',
-                      python: 'Python',
-                      html: 'HTML',
+                } else { // type is 'file'
+                    if (item.name.toLowerCase().includes(lowercasedQuery)) {
+                        acc.push(item);
                     }
-                  }),
-                  diffSourcePlugin({ diffMarkdown: diffMarkdown, viewMode: 'rich-text' }),
-                  markdownShortcutPlugin()
-                ]}
-              />
-            </Box>
-            <Button colorScheme="green" onClick={saveDocument} alignSelf="flex-end">
-              Save Document
-            </Button>
-          </>
-        );
-      case 'folder':
-        return <TableOfContents title={selectedFolder.name} items={selectedFolder.children} onSelect={handleTocSelect} />;
-      case 'trash':
-        return <TrashView items={trashedItems} onRestore={handleRestoreItem} onDelete={handleDeletePermanently} />;
-      case 'settings':
-        return <SettingsView onImport={handleImport} onExportAll={handleExportAll} fileInputRef={fileInputRef} colorMode={colorMode} toggleColorMode={toggleColorMode} />;
-      case 'welcome':
-      default:
-        return <TableOfContents title="Home" items={documents} onSelect={handleTocSelect} />;
-    }
-  };
+                }
+                return acc;
+            }, []);
+        };
+
+        return filterItems(documents);
+    }, [documents, searchQuery]);
 
 
-  return (
-    <Flex h="100vh">
-      {/* Sidebar */}
-      <Flex
-        as="aside"
-        w={isSidebarCollapsed ? '56px' : `${SIDEBAR_WIDTH}px`}
-        minW={isSidebarCollapsed ? '56px' : '200px'}
-        bg={sidebarBg}
-        borderRight="1px"
-        borderColor={sidebarBorderColor}
-        transition="width 0.2s, min-width 0.2s"
-        position="relative"
-        direction="column"
-      >
-        <Flex
-          direction="column"
-          h="100%"
-          w="100%"
-          overflow="hidden"
-          as="nav"
+    const handleTocSelect = (item) => {
+        if (item.type === 'file') {
+            fetchDocumentContent(item.path);
+        } else {
+            setSelectedFolder(item);
+            setView('folder');
+        }
+    };
+
+    const getAllKeys = (items) => {
+        let keys = [];
+        for (const item of items) {
+            if (item.type === 'folder') {
+                keys.push(item.path);
+                if (item.children) {
+                    keys = [...keys, ...getAllKeys(item.children)];
+                }
+            }
+        }
+        return keys;
+    };
+
+
+    const renderMainContent = () => {
+        switch (view) {
+            case 'document':
+                return (
+                    <>
+                        <Title level={2} style={{ marginBottom: '1rem' }}>
+                            {selectedDoc}
+                        </Title>
+                        <div style={{ flexGrow: 1, marginBottom: '1rem', border: '1px solid #d9d9d9', borderRadius: '2px', backgroundColor: '#fff', overflow: 'hidden' }}>
+                            <MDXEditor
+                                key={selectedDoc}
+                                markdown={markdown}
+                                onChange={setMarkdown}
+                                ref={editorRef}
+                                className={isDarkMode ? 'dark-editor' : ''}
+                                contentEditableClassName="prose"
+                                plugins={[
+                                    toolbarPlugin({
+                                        toolbarContents: () => (
+                                            <DiffSourceToggleWrapper>
+                                                <ConditionalContents
+                                                    options={[
+                                                        {
+                                                            when: (editor) => editor?.editorType === 'codeblock',
+                                                            contents: () => <ChangeCodeMirrorLanguage />
+                                                        },
+                                                        {
+                                                            fallback: () => (
+                                                                <>
+                                                                    <UndoRedo />
+                                                                    <Separator />
+                                                                    <BoldItalicUnderlineToggles />
+                                                                    <Separator />
+                                                                    <ListsToggle />
+                                                                    <Separator />
+                                                                    <BlockTypeSelect />
+                                                                    <Separator />
+                                                                    <CreateLink />
+                                                                    <InsertImage />
+                                                                    <InsertTable />
+                                                                    <InsertThematicBreak />
+                                                                    <Separator />
+                                                                    <InsertCodeBlock />
+                                                                </>
+                                                            )
+                                                        }
+                                                    ]}
+                                                />
+                                            </DiffSourceToggleWrapper>
+                                        )
+                                    }),
+                                    headingsPlugin(),
+                                    listsPlugin(),
+                                    quotePlugin(),
+                                    thematicBreakPlugin(),
+                                    linkPlugin(),
+                                    linkDialogPlugin(),
+                                    imagePlugin({
+                                        imageUploadHandler: () => {
+                                            return Promise.resolve('https://picsum.photos/200/300')
+                                        }
+                                    }),
+                                    tablePlugin(),
+                                    frontmatterPlugin(),
+                                    codeBlockPlugin({ defaultCodeBlockLanguage: 'txt' }),
+                                    codeMirrorPlugin({
+                                        codeBlockLanguages: {
+                                            js: 'JavaScript',
+                                            css: 'CSS',
+                                            txt: 'text',
+                                            tsx: 'TypeScript',
+                                            bash: 'Bash',
+                                            powershell: 'PowerShell',
+                                            python: 'Python',
+                                            html: 'HTML',
+                                        }
+                                    }),
+                                    diffSourcePlugin({ diffMarkdown: diffMarkdown, viewMode: 'rich-text' }),
+                                    markdownShortcutPlugin()
+                                ]}
+                            />
+                        </div>
+                        <Button type="primary" onClick={saveDocument} style={{ alignSelf: 'flex-end' }}>
+                            Save Document
+                        </Button>
+                    </>
+                );
+            case 'folder':
+                return <TableOfContents title={selectedFolder.name} items={selectedFolder.children} onSelect={handleTocSelect} />;
+            case 'trash':
+                return <TrashView items={trashedItems} onRestore={handleRestoreItem} onDelete={handleDeletePermanently} />;
+            case 'settings':
+                return <SettingsView onImport={handleImport} onExportAll={handleExportAll} fileInputRef={fileInputRef} toggleTheme={() => setIsDarkMode(!isDarkMode)} isDarkMode={isDarkMode} />;
+            case 'welcome':
+            default:
+                return <TableOfContents title="Home" items={documents} onSelect={handleTocSelect} />;
+        }
+    };
+
+    return (
+        <ConfigProvider
+            theme={{
+                algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
+            }}
         >
-          {/* Top Section: Hamburger and Title */}
-          <Flex
-            alignItems="center"
-            p={2}
-            justifyContent="space-between"
-          >
-            <IconButton
-              icon={<HamburgerIcon />}
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              variant="ghost"
-              aria-label="Toggle Sidebar"
-            />
-            {!isSidebarCollapsed && (
-              <>
-              <Heading as="h1" size="md" color="gray.600" ml={4} noOfLines={1} flex={1}>
-                A Simple Data Flow
-              </Heading>
-              <IconButton
-                  icon={<HomeIcon />}
-                  onClick={() => { setView('welcome'); setSelectedDoc(null); }}
-                  variant="ghost"
-                  aria-label="Home"
-                />
-              </>
-            )}
-          </Flex>
-          {isSidebarCollapsed && (
-            <VStack mt={4}>
-               <IconButton
-                  icon={<HomeIcon />}
-                  onClick={() => { setView('welcome'); setSelectedDoc(null); }}
-                  variant="ghost"
-                  aria-label="Home"
-                />
-            </VStack>
-          )}
+            <Layout style={{ minHeight: '100vh' }}>
+                <Sider
+                    collapsible
+                    collapsed={isSidebarCollapsed}
+                    onCollapse={(collapsed) => setIsSidebarCollapsed(collapsed)}
+                    width={SIDEBAR_WIDTH}
+                    collapsedWidth={screens.xs ? 0 : 80}
+                    theme={isDarkMode ? 'dark' : 'light'}
+                    style={{ display: 'flex', flexDirection: 'column' }}
+                >
+                    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        <div style={{ padding: '0.5rem', flexShrink: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: isSidebarCollapsed ? 'center' : 'space-between' }}>
+                                {!isSidebarCollapsed && (
+                                    <Title level={4} style={{ color: isDarkMode ? '#fff' : 'rgba(0, 0, 0, 0.85)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        A Simple Data Flow
+                                    </Title>
+                                )}
+                                <Button
+                                    icon={<HomeOutlined />}
+                                    onClick={() => { setView('welcome'); setSelectedDoc(null); }}
+                                    type="text"
+                                    style={{ color: isDarkMode ? '#fff' : 'rgba(0, 0, 0, 0.85)' }}
+                                />
+                            </div>
+                            {!isSidebarCollapsed && (
+                                <div style={{ marginTop: '1rem' }}>
+                                    <Space style={{ width: '100%' }}>
+                                        <Button
+                                            type="primary"
+                                            icon={<PlusOutlined />}
+                                            onClick={() => {
+                                                setCurrentFolder('');
+                                                setIsNewNoteModalVisible(true);
+                                            }}
+                                            style={{ flex: 1 }}
+                                        >
+                                            New Note
+                                        </Button>
+                                        <Button onClick={() => setIsNewFolderModalVisible(true)} style={{ flex: 1 }}>
+                                            New Folder
+                                        </Button>
+                                    </Space>
+                                    <Input
+                                        placeholder="Search..."
+                                        prefix={<SearchOutlined />}
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        style={{ marginTop: '1rem' }}
+                                    />
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                                        <Tooltip title="Expand All">
+                                            <Button icon={<PlusSquareOutlined />} size="small" onClick={() => setExpandedKeys(getAllKeys(documents))} />
+                                        </Tooltip>
+                                        <Tooltip title="Collapse All">
+                                            <Button icon={<MinusSquareOutlined />} size="small" onClick={() => setExpandedKeys([])} style={{ marginLeft: '0.5rem' }} />
+                                        </Tooltip>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0.5rem' }}>
+                            {!isSidebarCollapsed && (
+                                isLoading ? (
+                                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                                        <Spin />
+                                    </div>
+                                ) : (
+                                    <FileTree
+                                        items={filteredDocuments}
+                                        onSelect={fetchDocumentContent}
+                                        onSelectFolder={(folder) => {
+                                            setSelectedFolder(folder);
+                                            setView('folder');
+                                        }}
+                                        onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); setIsRenameModalVisible(true); }}
+                                        onDelete={handleDelete}
+                                        onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); setIsNewNoteModalVisible(true); }}
+                                        onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); setIsNewFolderModalVisible(true); }}
+                                        onExportItem={(item) => { window.open(`${API_URL}/export/${item.path}`, '_blank'); }}
+                                        selectedDoc={selectedDoc}
+                                        onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); setIsMoveModalVisible(true); }}
+                                        expandedKeys={expandedKeys}
+                                        setExpandedKeys={setExpandedKeys}
+                                    />
+                                )
+                            )}
+                        </div>
+                        <Menu theme={isDarkMode ? 'dark' : 'light'} mode="vertical" inlineCollapsed={isSidebarCollapsed}>
+                            <Menu.Item key="trash" icon={<TrashIcon />} onClick={fetchTrash}>
+                                {!isSidebarCollapsed && 'Recycle Bin'}
+                            </Menu.Item>
+                            <Menu.Item key="settings" icon={<SettingOutlined />} onClick={() => setView('settings')}>
+                                {!isSidebarCollapsed && 'Settings'}
+                            </Menu.Item>
+                        </Menu>
+                    </div>
+                </Sider>
+                <Layout>
+                    <Content style={{ padding: '1rem', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+                        {renderMainContent()}
+                    </Content>
+                </Layout>
 
-          {/* Middle Section: Content */}
-          <VStack
-            spacing={4}
-            align="stretch"
-            p={2}
-            display={isSidebarCollapsed ? 'none' : 'flex'}
-            flexShrink={0}
-          >
-            <HStack spacing={2}>
-              <Button
-                colorScheme="blue"
-                onClick={() => {
-                  setCurrentFolder('');
-                  onNewNoteOpen();
-                }}
-                leftIcon={<AddIcon />}
-                flex={1}
-                size="sm"
-              >
-                New Note
-              </Button>
-              <Button colorScheme="gray" onClick={onNewFolderOpen} flex={1} size="sm">
-                New Folder
-              </Button>
-            </HStack>
-            <InputGroup size="sm">
-              <InputLeftElement pointerEvents="none">
-                <SearchIcon color="gray.300" />
-              </InputLeftElement>
-              <Input
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </InputGroup>
-          </VStack>
-          <Box
-            flexGrow={1}
-            overflowY="auto"
-            overflowX="hidden"
-            display={isSidebarCollapsed ? 'none' : 'block'}
-            p={2}
-            pt={0}
-          >
-            {isLoading ? (
-              <Flex justify="center" align="center" h="100%">
-                <Spinner />
-              </Flex>
-            ) : (
-              <FileTree
-                items={filteredDocuments}
-                onSelect={fetchDocumentContent}
-                onSelectFolder={(folder) => {
-                  setSelectedFolder(folder);
-                  setView('folder');
-                }}
-                onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); onRenameOpen(); }}
-                onDelete={handleDelete}
-                onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); onNewNoteOpen(); }}
-                onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); onNewFolderOpen(); }}
-                onExportItem={(item) => { window.open(`${API_URL}/export/${item.path}`, '_blank'); }}
-                selectedDoc={selectedDoc}
-                onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); onMoveOpen(); }}
-              />
-            )}
-          </Box>
-          
-          <Spacer />
-          {/* Bottom Section: Settings */}
-          <VStack p={2} spacing={2} align={isSidebarCollapsed ? 'center' : 'stretch'}>
-            {isSidebarCollapsed ? (
-                <>
-                    <IconButton
-                        icon={<TrashIcon />}
-                        onClick={fetchTrash}
-                        variant="ghost"
-                        aria-label="Recycle Bin"
-                    />
-                    <IconButton
-                        icon={<SettingsIcon />}
-                        onClick={() => setView('settings')}
-                        variant="ghost"
-                        aria-label="Settings"
-                    />
-                </>
-            ) : (
-                <>
-                    <Button leftIcon={<TrashIcon />} variant="ghost" justifyContent="flex-start" onClick={fetchTrash}>
-                        Recycle Bin
-                    </Button>
-                    <Button leftIcon={<SettingsIcon />} variant="ghost" justifyContent="flex-start" onClick={() => setView('settings')}>
-                        Settings
-                    </Button>
-                </>
-            )}
-            </VStack>
-        </Flex>
-      </Flex>
+                <Modal title="Create New Note" open={isNewNoteModalVisible} onOk={handleCreateNote} onCancel={() => setIsNewNoteModalVisible(false)}>
+                    <Form>
+                        <Form.Item label="Note name">
+                            <Input
+                                placeholder="note-name"
+                                value={newNoteName}
+                                onChange={(e) => setNewNoteName(e.target.value)}
+                                onPressEnter={handleCreateNote}
+                            />
+                        </Form.Item>
+                    </Form>
+                </Modal>
 
-      {/* Main Content Area */}
-      <Flex flexGrow={1} bg={mainBg} p={8} direction="column">
-        {renderMainContent()}
-      </Flex>
+                <Modal title={`Rename ${itemToRename?.type}`} open={isRenameModalVisible} onOk={handleRename} onCancel={() => setIsRenameModalVisible(false)}>
+                    <Form>
+                        <Form.Item label="New name">
+                            <Input
+                                value={newNoteName}
+                                onChange={(e) => setNewNoteName(e.target.value)}
+                                onPressEnter={handleRename}
+                            />
+                        </Form.Item>
+                    </Form>
+                </Modal>
 
-      {/* Modals for rename, delete, and new folder */}
-      {/* New Note Modal */}
-      <Modal isOpen={isNewNoteOpen} onClose={onNewNoteClose}>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Create New Note</ModalHeader>
-          <ModalBody>
-            <FormControl>
-              <FormLabel>Note name</FormLabel>
-              <Input
-                placeholder="note-name"
-                value={newNoteName}
-                onChange={(e) => setNewNoteName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateNote();
-                }}
-              />
-            </FormControl>
-          </ModalBody>
-          <ModalFooter>
-            <Button onClick={onNewNoteClose} mr={3}>Cancel</Button>
-            <Button colorScheme="blue" onClick={handleCreateNote}>Create</Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
+                <Modal
+                    title={`Delete ${itemToDelete?.type}`}
+                    open={isDeleteModalVisible}
+                    onOk={confirmDelete}
+                    onCancel={() => setIsDeleteModalVisible(false)}
+                    okText="Delete"
+                    cancelText="Cancel"
+                    okButtonProps={{ danger: true }}
+                >
+                    <p>Are you sure you want to move "{itemToDelete?.name}" to the recycle bin?</p>
+                </Modal>
 
-      {/* Rename Modal */}
-      <Modal isOpen={isRenameOpen} onClose={onRenameClose}>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Rename {itemToRename?.type}</ModalHeader>
-          <ModalBody>
-            <FormControl>
-              <FormLabel>New name</FormLabel>
-              <Input
-                value={newNoteName}
-                onChange={(e) => setNewNoteName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleRename();
-                }}
-              />
-            </FormControl>
-          </ModalBody>
-          <ModalFooter>
-            <Button onClick={onRenameClose} mr={3}>Cancel</Button>
-            <Button colorScheme="blue" onClick={handleRename}>Rename</Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
+                <Modal title="Create New Folder" open={isNewFolderModalVisible} onOk={handleCreateFolder} onCancel={() => setIsNewFolderModalVisible(false)}>
+                    <Form>
+                        <Form.Item label="Folder name">
+                            <Input
+                                placeholder="folder-name"
+                                value={newFolderName}
+                                onChange={(e) => setNewFolderName(e.target.value)}
+                                onPressEnter={handleCreateFolder}
+                            />
+                        </Form.Item>
+                    </Form>
+                </Modal>
 
-      {/* Delete Alert Dialog */}
-      <AlertDialog
-        isOpen={isDeleteOpen}
-        leastDestructiveRef={cancelRef}
-        onClose={onDeleteClose}
-      >
-        <AlertDialogOverlay>
-          <AlertDialogContent>
-            <AlertDialogHeader fontSize="lg" fontWeight="bold">
-              Delete {itemToDelete?.type}
-            </AlertDialogHeader>
-            <AlertDialogBody>
-              Are you sure you want to move "{itemToDelete?.name}" to the recycle bin?
-            </AlertDialogBody>
-            <AlertDialogFooter>
-              <Button ref={cancelRef} onClick={onDeleteClose}>
-                Cancel
-              </Button>
-              <Button colorScheme="red" onClick={confirmDelete} ml={3}>
-                Delete
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialogOverlay>
-      </AlertDialog>
-
-      {/* Create Folder Modal */}
-      <Modal isOpen={isNewFolderOpen} onClose={onNewFolderClose}>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Create New Folder</ModalHeader>
-          <ModalBody>
-            <FormControl>
-              <FormLabel>Folder name</FormLabel>
-              <Input
-                placeholder="folder-name"
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateFolder();
-                }}
-              />
-            </FormControl>
-          </ModalBody>
-          <ModalFooter>
-            <Button onClick={onNewFolderClose} mr={3}>Cancel</Button>
-            <Button colorScheme="blue" onClick={handleCreateFolder}>Create</Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-
-      {/* Move Modal */}
-      <Modal isOpen={isMoveOpen} onClose={onMoveClose}>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Move "{itemToMove?.name}"</ModalHeader>
-          <ModalBody>
-            <FormControl>
-              <FormLabel>Select a destination folder</FormLabel>
-              <Box borderWidth="1px" p={2} borderRadius="md" maxH="200px" overflowY="auto">
-                <FolderList
-                  items={documents.filter(item => item.type === 'folder')}
-                  onSelect={setDestinationFolder}
-                  selectedPath={destinationFolder}
-                />
-              </Box>
-            </FormControl>
-          </ModalBody>
-          <ModalFooter>
-            <Button onClick={onMoveClose} mr={3}>Cancel</Button>
-            <Button colorScheme="blue" onClick={handleMove}>Move</Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-    </Flex>
-  );
+                <Modal title={`Move "${itemToMove?.name}"`} open={isMoveModalVisible} onOk={handleMove} onCancel={() => setIsMoveModalVisible(false)}>
+                    <Form>
+                        <Form.Item label="Select a destination folder">
+                            <Tree
+                                treeData={[
+                                    { title: 'Root', key: '', icon: <FolderOutlined /> },
+                                    ...buildFolderTreeData(documents)
+                                ]}
+                                onSelect={(selectedKeys) => {
+                                    setDestinationFolder(selectedKeys[0] || '');
+                                }}
+                                selectedKeys={destinationFolder ? [destinationFolder] : ['']}
+                                defaultExpandAll
+                                showIcon
+                                blockNode
+                            />
+                        </Form.Item>
+                    </Form>
+                </Modal>
+            </Layout>
+        </ConfigProvider>
+    );
 }
 
 export default App;
