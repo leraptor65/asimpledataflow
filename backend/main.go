@@ -248,21 +248,26 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Case-insensitive check
 	dir := filepath.Dir(filePath)
-	files, err := os.ReadDir(dir)
-	if err == nil {
-		for _, file := range files {
-			if strings.EqualFold(file.Name(), filepath.Base(filePath)+".md") || strings.EqualFold(file.Name(), filepath.Base(filePath)+".txt") {
-				http.Error(w, "a file or folder with the same name already exists (case-insensitive)", http.StatusConflict)
-				return
-			}
-		}
-	}
-
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Add .md extension for new files, and check for conflicts
+	if _, err := os.Stat(filePath + ".md"); err != nil {
+		files, err := os.ReadDir(dir)
+		if err == nil {
+			for _, file := range files {
+				if strings.EqualFold(file.Name(), filepath.Base(filePath)+".md") {
+					http.Error(w, "a file with the same name already exists (case-insensitive)", http.StatusConflict)
+					return
+				}
+			}
+		}
+		filePath += ".md"
+	} else {
+		filePath += ".md"
 	}
 
 	content, err := io.ReadAll(r.Body)
@@ -271,8 +276,7 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save as .md by default, can be extended for other types
-	if err := os.WriteFile(filePath+".md", content, 0644); err != nil {
+	if err := os.WriteFile(filePath, content, 0644); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -341,62 +345,62 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	oldPath := vars["id"]
-
 	oldFilePath := filepath.Join(dataDir, oldPath)
-	newFilePath := filepath.Join(dataDir, req.NewPath)
 
-	if !strings.HasPrefix(oldFilePath, dataDir) || !strings.HasPrefix(newFilePath, dataDir) {
-		http.Error(w, "invalid paths", http.StatusBadRequest)
+	// Determine if the old path is a directory or a file, and get the correct full path
+	info, err := os.Stat(oldFilePath)
+	if err != nil {
+		extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
+		found := false
+		for _, ext := range extensions {
+			if stat, err := os.Stat(oldFilePath + ext); err == nil {
+				oldFilePath += ext
+				info = stat
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.Error(w, "item not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	// Create the new path, preserving the original directory
+	var newFilePath string
+	if info.IsDir() {
+		newFilePath = filepath.Join(filepath.Dir(oldFilePath), req.NewPath)
+	} else {
+		ext := filepath.Ext(oldFilePath)
+		newFilePath = filepath.Join(filepath.Dir(oldFilePath), req.NewPath+ext)
+	}
+
+	if !strings.HasPrefix(newFilePath, dataDir) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
 
-	// Case-insensitive check
+	// Case-insensitive check for destination
 	dir := filepath.Dir(newFilePath)
 	files, err := os.ReadDir(dir)
 	if err == nil {
 		for _, file := range files {
-			if strings.EqualFold(file.Name(), filepath.Base(newFilePath)) || strings.EqualFold(file.Name(), filepath.Base(newFilePath)+".md") {
+			if strings.EqualFold(file.Name(), filepath.Base(newFilePath)) {
 				http.Error(w, "a file or folder with the same name already exists (case-insensitive)", http.StatusConflict)
 				return
 			}
 		}
 	}
 
-	info, err := os.Stat(oldFilePath)
-	if err != nil {
-		extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
-		found := false
-		for _, ext := range extensions {
-			if _, err := os.Stat(oldFilePath + ext); err == nil {
-				oldFilePath += ext
-				info, _ = os.Stat(oldFilePath)
-				found = true
-				break
-			}
-		}
-		if !found || info.IsDir() {
-			http.Error(w, "item not found", http.StatusNotFound)
-			return
-		}
-	}
-
-	if !info.IsDir() {
-		ext := filepath.Ext(oldFilePath)
-		newFilePath = newFilePath + ext
-	}
-
-	if _, err := os.Stat(newFilePath); err == nil {
-		http.Error(w, "destination path already exists", http.StatusConflict)
-		return
-	}
-
+	// Ensure destination directory exists
 	if err := os.MkdirAll(filepath.Dir(newFilePath), 0755); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "could not create destination directory: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// Rename the file or folder
 	if err := os.Rename(oldFilePath, newFilePath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "could not move item: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

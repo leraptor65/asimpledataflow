@@ -208,6 +208,7 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
             showIcon={false}
             switcherIcon={({ expanded }) => expanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
             blockNode
+            style={{ background: 'transparent' }}
         />
     );
 };
@@ -334,7 +335,29 @@ function App() {
         if (savedTheme) {
             setIsDarkMode(JSON.parse(savedTheme));
         }
+
+        const path = window.location.pathname.substring(1);
+        if (path) {
+            fetchDocumentContent(path, false);
+        }
+
         fetchDocuments();
+
+        const handlePopState = (event) => {
+            const path = window.location.pathname.substring(1);
+            if (path) {
+                fetchDocumentContent(path, false);
+            } else {
+                setView('welcome');
+                setSelectedDoc(null);
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+
+        return () => {
+            window.removeEventListener('popstate', handlePopState);
+        };
     }, []);
 
     const toggleTheme = (checked) => {
@@ -360,12 +383,16 @@ function App() {
         }
     };
 
-    const fetchDocumentContent = async (id) => {
+    const fetchDocumentContent = async (id, pushState = true) => {
         if (!id) return;
         try {
             const response = await fetch(`${API_URL}/documents/${id}`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            if (pushState) {
+                window.history.pushState({ id }, '', `/${id}`);
             }
 
             const contentType = response.headers.get('Content-Type');
@@ -541,7 +568,8 @@ function App() {
                 body: JSON.stringify({ newPath: newPath }),
             });
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
             }
             setIsMoveModalVisible(false);
             fetchDocuments();
@@ -741,7 +769,11 @@ function App() {
                                                     options={[
                                                         {
                                                             when: (editor) => editor?.editorType === 'codeblock',
-                                                            contents: () => <ChangeCodeMirrorLanguage />
+                                                            contents: () => (
+                                                                <>
+                                                                    <ChangeCodeMirrorLanguage />
+                                                                </>
+                                                            )
                                                         },
                                                         {
                                                             fallback: () => (
@@ -833,6 +865,21 @@ function App() {
                 return <TableOfContents title="Home" items={documents} onSelect={handleTocSelect} />;
         }
     };
+    
+    const menuItems = [
+        {
+          key: 'trash',
+          icon: <TrashIcon />,
+          label: isSidebarCollapsed ? null : 'Recycle Bin',
+          onClick: fetchTrash,
+        },
+        {
+          key: 'settings',
+          icon: <SettingOutlined />,
+          label: isSidebarCollapsed ? null : 'Settings',
+          onClick: () => setView('settings'),
+        },
+      ];
 
     return (
         <ConfigProvider
@@ -868,7 +915,7 @@ function App() {
                                 )}
                                 <Button
                                     icon={<HomeOutlined />}
-                                    onClick={() => { setView('welcome'); setSelectedDoc(null); }}
+                                    onClick={() => { setView('welcome'); setSelectedDoc(null); window.history.pushState(null, '', '/'); }}
                                     type="text"
                                     style={{ color: isDarkMode ? '#fff' : 'rgba(0, 0, 0, 0.85)' }}
                                 />
@@ -936,14 +983,12 @@ function App() {
                                 )
                             )}
                         </div>
-                        <Menu theme={isDarkMode ? 'dark' : 'light'} mode="vertical" inlineCollapsed={isSidebarCollapsed}>
-                            <Menu.Item key="trash" icon={<TrashIcon />} onClick={fetchTrash}>
-                                {!isSidebarCollapsed && 'Recycle Bin'}
-                            </Menu.Item>
-                            <Menu.Item key="settings" icon={<SettingOutlined />} onClick={() => setView('settings')}>
-                                {!isSidebarCollapsed && 'Settings'}
-                            </Menu.Item>
-                        </Menu>
+                        <Menu
+                            theme={isDarkMode ? 'dark' : 'light'}
+                            mode="inline"
+                            inlineCollapsed={isSidebarCollapsed}
+                            items={menuItems}
+                        />
                     </div>
                 </Sider>
                 <Layout style={{ marginLeft: isSidebarCollapsed ? (screens.xs ? 0 : 80) : SIDEBAR_WIDTH, transition: 'margin-left 0.2s' }}>
