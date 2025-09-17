@@ -15,7 +15,6 @@ import {
   frontmatterPlugin,
   codeBlockPlugin,
   codeMirrorPlugin,
-  directivesPlugin,
   diffSourcePlugin,
   markdownShortcutPlugin,
   ListsToggle,
@@ -402,12 +401,6 @@ function App() {
       });
     }
   };
-  
-  useEffect(() => {
-    if (view === 'document' && editorRef.current) {
-      editorRef.current.setMarkdown(markdown);
-    }
-  }, [markdown, view]);
 
   const saveDocument = async () => {
     if (!selectedDoc) return;
@@ -738,6 +731,7 @@ function App() {
             </Heading>
             <Box flexGrow={1} mb={4} borderWidth="1px" borderRadius="lg" bg="white" overflow="hidden">
             <MDXEditor
+                key={selectedDoc}
                 markdown={markdown}
                 onChange={setMarkdown}
                 ref={editorRef}
@@ -886,65 +880,70 @@ function App() {
           )}
 
           {/* Middle Section: Content */}
-          <Box 
-            flex={1} 
-            overflowY="auto" 
-            overflowX="hidden" 
+          <VStack
+            spacing={4}
+            align="stretch"
+            p={2}
+            display={isSidebarCollapsed ? 'none' : 'flex'}
+            flexShrink={0}
+          >
+            <HStack spacing={2}>
+              <Button
+                colorScheme="blue"
+                onClick={() => {
+                  setCurrentFolder('');
+                  onNewNoteOpen();
+                }}
+                leftIcon={<AddIcon />}
+                flex={1}
+                size="sm"
+              >
+                New Note
+              </Button>
+              <Button colorScheme="gray" onClick={onNewFolderOpen} flex={1} size="sm">
+                New Folder
+              </Button>
+            </HStack>
+            <InputGroup size="sm">
+              <InputLeftElement pointerEvents="none">
+                <SearchIcon color="gray.300" />
+              </InputLeftElement>
+              <Input
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </InputGroup>
+          </VStack>
+          <Box
+            flex={1}
+            overflowY="auto"
+            overflowX="hidden"
             display={isSidebarCollapsed ? 'none' : 'block'}
             p={2}
+            pt={0}
           >
-            <VStack spacing={4} align="stretch">
-              <HStack spacing={2}>
-                <Button
-                  colorScheme="blue"
-                  onClick={() => {
-                    setCurrentFolder('');
-                    onNewNoteOpen();
-                  }}
-                  leftIcon={<AddIcon />}
-                  flex={1}
-                  size="sm"
-                >
-                  New Note
-                </Button>
-                <Button colorScheme="gray" onClick={onNewFolderOpen} flex={1} size="sm">
-                  New Folder
-                </Button>
-              </HStack>
-              <InputGroup size="sm">
-                <InputLeftElement pointerEvents="none">
-                  <SearchIcon color="gray.300" />
-                </InputLeftElement>
-                <Input
-                  placeholder="Search..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </InputGroup>
-            </VStack>
-            <Box mt={4}>
-              {isLoading ? (
-                <Flex justify="center" align="center" h="100%">
-                  <Spinner />
-                </Flex>
-              ) : (
-                <FileTree
-                  items={filteredDocuments}
-                  onSelect={fetchDocumentContent}
-                  onSelectFolder={(folder) => {
-                    setSelectedFolder(folder);
-                    setView('folder');
-                  }}
-                  onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); onRenameOpen(); }}
-                  onDelete={handleDelete}
-                  onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); onNewNoteOpen(); }}
-                  onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); onNewFolderOpen(); }}
-                  onExportItem={(item) => { window.open(`${API_URL}/export/${item.path}`, '_blank'); }}
-                  selectedDoc={selectedDoc}
-                  onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); onMoveOpen(); }}
-                />
-              )}
-            </Box>
+            {isLoading ? (
+              <Flex justify="center" align="center" h="100%">
+                <Spinner />
+              </Flex>
+            ) : (
+              <FileTree
+                items={filteredDocuments}
+                onSelect={fetchDocumentContent}
+                onSelectFolder={(folder) => {
+                  setSelectedFolder(folder);
+                  setView('folder');
+                }}
+                onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); onRenameOpen(); }}
+                onDelete={handleDelete}
+                onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); onNewNoteOpen(); }}
+                onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); onNewFolderOpen(); }}
+                onExportItem={(item) => { window.open(`${API_URL}/export/${item.path}`, '_blank'); }}
+                selectedDoc={selectedDoc}
+                onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); onMoveOpen(); }}
+              />
+            )}
           </Box>
           
           <Spacer />
