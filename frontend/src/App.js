@@ -320,8 +320,18 @@ function App() {
     const screens = useBreakpoint();
 
     useEffect(() => {
+        const savedTheme = localStorage.getItem('darkMode');
+        if (savedTheme) {
+            setIsDarkMode(JSON.parse(savedTheme));
+        }
         fetchDocuments();
     }, []);
+
+    const toggleTheme = (checked) => {
+        setIsDarkMode(checked);
+        localStorage.setItem('darkMode', JSON.stringify(checked));
+    };
+
 
     const fetchDocuments = async () => {
         try {
@@ -667,7 +677,7 @@ function App() {
                         <Title level={2} style={{ marginBottom: '1rem' }}>
                             {selectedDoc}
                         </Title>
-                        <div style={{ flexGrow: 1, marginBottom: '1rem', border: '1px solid #d9d9d9', borderRadius: '2px', backgroundColor: '#fff', overflow: 'hidden' }}>
+                        <div style={{ flex: '1 1 auto', overflowY: 'auto', border: '1px solid #d9d9d9', borderRadius: '2px', backgroundColor: '#fff', display: 'flex', flexDirection: 'column' }}>
                             <MDXEditor
                                 key={selectedDoc}
                                 markdown={markdown}
@@ -741,7 +751,7 @@ function App() {
                                 ]}
                             />
                         </div>
-                        <Button type="primary" onClick={saveDocument} style={{ alignSelf: 'flex-end' }}>
+                        <Button type="primary" onClick={saveDocument} style={{ alignSelf: 'flex-end', marginTop: '1rem' }}>
                             Save Document
                         </Button>
                     </>
@@ -751,7 +761,7 @@ function App() {
             case 'trash':
                 return <TrashView items={trashedItems} onRestore={handleRestoreItem} onDelete={handleDeletePermanently} />;
             case 'settings':
-                return <SettingsView onImport={handleImport} onExportAll={handleExportAll} fileInputRef={fileInputRef} toggleTheme={() => setIsDarkMode(!isDarkMode)} isDarkMode={isDarkMode} />;
+                return <SettingsView onImport={handleImport} onExportAll={handleExportAll} fileInputRef={fileInputRef} toggleTheme={toggleTheme} isDarkMode={isDarkMode} />;
             case 'welcome':
             default:
                 return <TableOfContents title="Home" items={documents} onSelect={handleTocSelect} />;
@@ -772,7 +782,15 @@ function App() {
                     width={SIDEBAR_WIDTH}
                     collapsedWidth={screens.xs ? 0 : 80}
                     theme={isDarkMode ? 'dark' : 'light'}
-                    style={{ display: 'flex', flexDirection: 'column' }}
+                    style={{
+                        overflow: 'auto',
+                        height: '100vh',
+                        position: 'fixed',
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        zIndex: 1,
+                    }}
                 >
                     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                         <div style={{ padding: '0.5rem', flexShrink: 0 }}>
@@ -791,7 +809,7 @@ function App() {
                             </div>
                             {!isSidebarCollapsed && (
                                 <div style={{ marginTop: '1rem' }}>
-                                    <Space style={{ width: '100%' }}>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
                                         <Button
                                             type="primary"
                                             icon={<PlusOutlined />}
@@ -806,7 +824,7 @@ function App() {
                                         <Button onClick={() => setIsNewFolderModalVisible(true)} style={{ flex: 1 }}>
                                             New Folder
                                         </Button>
-                                    </Space>
+                                    </div>
                                     <Input
                                         placeholder="Search..."
                                         prefix={<SearchOutlined />}
@@ -862,8 +880,8 @@ function App() {
                         </Menu>
                     </div>
                 </Sider>
-                <Layout>
-                    <Content style={{ padding: '1rem', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
+                <Layout style={{ marginLeft: isSidebarCollapsed ? (screens.xs ? 0 : 80) : SIDEBAR_WIDTH, transition: 'margin-left 0.2s' }}>
+                    <Content style={{ padding: '1rem', display: 'flex', flexDirection: 'column', height: '100vh' }}>
                         {renderMainContent()}
                     </Content>
                 </Layout>
