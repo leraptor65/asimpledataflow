@@ -316,7 +316,7 @@ function App() {
     const API_URL = '/api';
     const fileInputRef = React.useRef();
 
-    const SIDEBAR_WIDTH = 320;
+    const SIDEBAR_WIDTH = 280;
     const screens = useBreakpoint();
 
     useEffect(() => {
@@ -331,7 +331,6 @@ function App() {
         setIsDarkMode(checked);
         localStorage.setItem('darkMode', JSON.stringify(checked));
     };
-
 
     const fetchDocuments = async () => {
         try {
@@ -817,11 +816,11 @@ function App() {
                                                 setCurrentFolder('');
                                                 setIsNewNoteModalVisible(true);
                                             }}
-                                            style={{ flex: 1 }}
+                                            style={{ flex: 1, width: '100%' }}
                                         >
                                             New Note
                                         </Button>
-                                        <Button onClick={() => setIsNewFolderModalVisible(true)} style={{ flex: 1 }}>
+                                        <Button onClick={() => setIsNewFolderModalVisible(true)} style={{ flex: 1, width: '100%' }}>
                                             New Folder
                                         </Button>
                                     </div>
@@ -843,7 +842,7 @@ function App() {
                                 </div>
                             )}
                         </div>
-                        <div style={{ flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0.5rem' }}>
+                        <div style={{ flex: '1 1 auto', overflowY: 'auto', overflowX: 'hidden', padding: '0.5rem 1rem 0.5rem 0.5rem' }}>
                             {!isSidebarCollapsed && (
                                 isLoading ? (
                                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -881,7 +880,7 @@ function App() {
                     </div>
                 </Sider>
                 <Layout style={{ marginLeft: isSidebarCollapsed ? (screens.xs ? 0 : 80) : SIDEBAR_WIDTH, transition: 'margin-left 0.2s' }}>
-                    <Content style={{ padding: '1rem', display: 'flex', flexDirection: 'column', height: '100vh' }}>
+                    <Content style={{ padding: '1rem', display: 'flex', flexDirection: 'column', height: '100vh', overflowY: 'auto' }}>
                         {renderMainContent()}
                     </Content>
                 </Layout>
