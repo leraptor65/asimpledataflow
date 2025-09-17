@@ -290,11 +290,18 @@ const TrashView = ({ items, onRestore, onDelete }) => {
   );
 }
 
-const SettingsView = ({ onImport, onExportAll, fileInputRef }) => {
+const SettingsView = ({ onImport, onExportAll, fileInputRef, colorMode, toggleColorMode }) => {
   return (
     <Box>
       <Heading as="h2" size="xl" mb={4}>Settings</Heading>
       <VStack spacing={8} align="stretch">
+        <Box>
+          <Heading as="h3" size="lg" mb={2}>Appearance</Heading>
+          <Flex align="center">
+            <Text fontSize="md" mr={4}>Dark Mode</Text>
+            <Switch isChecked={colorMode === 'dark'} onChange={toggleColorMode} />
+          </Flex>
+        </Box>
         <Box>
           <Heading as="h3" size="lg" mb={2}>Import</Heading>
           <Text fontSize="md" mb={4}>Import notes from a .md or .zip file.</Text>
@@ -735,6 +742,7 @@ function App() {
                 markdown={markdown}
                 onChange={setMarkdown}
                 ref={editorRef}
+                className={colorMode === 'dark' ? 'dark-editor' : ''}
                 contentEditableClassName="prose"
                 plugins={[
                   toolbarPlugin({
@@ -812,7 +820,7 @@ function App() {
       case 'trash':
         return <TrashView items={trashedItems} onRestore={handleRestoreItem} onDelete={handleDeletePermanently} />;
       case 'settings':
-        return <SettingsView onImport={handleImport} onExportAll={handleExportAll} fileInputRef={fileInputRef} />;
+        return <SettingsView onImport={handleImport} onExportAll={handleExportAll} fileInputRef={fileInputRef} colorMode={colorMode} toggleColorMode={toggleColorMode} />;
       case 'welcome':
       default:
         return <TableOfContents title="Home" items={documents} onSelect={handleTocSelect} />;
@@ -858,7 +866,6 @@ function App() {
               <Heading as="h1" size="md" color="gray.600" ml={4} noOfLines={1} flex={1}>
                 A Simple Data Flow
               </Heading>
-              <Switch isChecked={colorMode === 'dark'} onChange={toggleColorMode} />
               <IconButton
                   icon={<HomeIcon />}
                   onClick={() => { setView('welcome'); setSelectedDoc(null); }}
@@ -916,7 +923,7 @@ function App() {
             </InputGroup>
           </VStack>
           <Box
-            flex={1}
+            flexGrow={1}
             overflowY="auto"
             overflowX="hidden"
             display={isSidebarCollapsed ? 'none' : 'block'}

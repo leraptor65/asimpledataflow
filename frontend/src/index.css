@@ -11,3 +11,13 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+.dark-editor .mdxeditor {
+  background-color: #2d3748; /* gray.700 */
+  color: #f7fafc; /* gray.50 */
+}
+
+.dark-editor .cm-editor {
+  background-color: #1a202c; /* gray.800 */
+  color: #f7fafc; /* gray.50 */
+}
