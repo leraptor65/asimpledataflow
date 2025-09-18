@@ -29,6 +29,36 @@ type FileSystemItem struct {
 	Children []FileSystemItem `json:"children,omitempty"`
 }
 
+// existsCaseInsensitive checks if an item with the given name (case-insensitive) already exists in a directory.
+// The `exclude` parameter is a full path to an item to ignore, useful for rename/move operations.
+func existsCaseInsensitive(dirPath, name, exclude string) (bool, error) {
+	items, err := os.ReadDir(dirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	for _, item := range items {
+		existingFullPath := filepath.Join(dirPath, item.Name())
+		if strings.EqualFold(existingFullPath, exclude) {
+			continue
+		}
+
+		existingName := item.Name()
+		// For files, compare without the extension
+		if !item.IsDir() {
+			existingName = strings.TrimSuffix(existingName, filepath.Ext(existingName))
+		}
+
+		if strings.EqualFold(existingName, name) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func main() {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		log.Fatalf("failed to create data directory: %v", err)
@@ -254,21 +284,19 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add .md extension for new files, and check for conflicts
-	if _, err := os.Stat(filePath + ".md"); err != nil {
-		files, err := os.ReadDir(dir)
-		if err == nil {
-			for _, file := range files {
-				if strings.EqualFold(file.Name(), filepath.Base(filePath)+".md") {
-					http.Error(w, "a file with the same name already exists (case-insensitive)", http.StatusConflict)
-					return
-				}
-			}
-		}
-		filePath += ".md"
-	} else {
-		filePath += ".md"
+	newBaseName := strings.TrimSuffix(filepath.Base(docID), filepath.Ext(docID))
+	
+	// Check for a case-insensitive conflict with existing files or folders.
+	// The path to exclude is the new one with the .md extension, as we are creating or overwriting this specific file.
+	if exists, err := existsCaseInsensitive(dir, newBaseName, filePath + ".md"); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	} else if exists {
+		http.Error(w, "An item with the same name already exists in this folder.", http.StatusConflict)
+		return
 	}
+
+	finalPath := filePath + ".md"
 
 	content, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -276,7 +304,7 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.WriteFile(filePath, content, 0644); err != nil {
+	if err := os.WriteFile(finalPath, content, 0644); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -315,7 +343,7 @@ func moveItemToTrash(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trashPath := filepath.Join(trashDir, filepath.Base(filePath))
-	// Add a timestamp to avoid name collisions
+	// Add a timestamp to avoid name collisions in the trash folder
 	if !info.IsDir() {
 		ext := filepath.Ext(trashPath)
 		trashPath = trashPath[0:len(trashPath)-len(ext)] + "_" + time.Now().Format("20060102150405") + ext
@@ -347,7 +375,6 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 	oldPath := vars["id"]
 	oldFilePath := filepath.Join(dataDir, oldPath)
 
-	// Determine if the old path is a directory or a file, and get the correct full path
 	info, err := os.Stat(oldFilePath)
 	if err != nil {
 		extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
@@ -366,30 +393,27 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create the new path, preserving the original directory
 	var newFilePath string
+	newBaseName := req.NewPath
 	if info.IsDir() {
-		newFilePath = filepath.Join(filepath.Dir(oldFilePath), req.NewPath)
+		newFilePath = filepath.Join(filepath.Dir(oldFilePath), newBaseName)
 	} else {
 		ext := filepath.Ext(oldFilePath)
-		newFilePath = filepath.Join(filepath.Dir(oldFilePath), req.NewPath+ext)
+		newFilePath = filepath.Join(filepath.Dir(oldFilePath), newBaseName+ext)
 	}
 
 	if !strings.HasPrefix(newFilePath, dataDir) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-
-	// Case-insensitive check for destination
-	dir := filepath.Dir(newFilePath)
-	files, err := os.ReadDir(dir)
-	if err == nil {
-		for _, file := range files {
-			if strings.EqualFold(file.Name(), filepath.Base(newFilePath)) {
-				http.Error(w, "a file or folder with the same name already exists (case-insensitive)", http.StatusConflict)
-				return
-			}
-		}
+	
+	// Check for a case-insensitive conflict at the destination. We exclude the old file itself.
+	if exists, err := existsCaseInsensitive(filepath.Dir(newFilePath), newBaseName, oldFilePath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	} else if exists {
+		http.Error(w, "An item with the same name already exists (case-insensitive)", http.StatusConflict)
+		return
 	}
 
 	// Ensure destination directory exists
@@ -398,7 +422,6 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rename the file or folder
 	if err := os.Rename(oldFilePath, newFilePath); err != nil {
 		http.Error(w, "could not move item: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -418,16 +441,16 @@ func createFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Case-insensitive check
-	dir := filepath.Dir(fullPath)
-	files, err := os.ReadDir(dir)
-	if err == nil {
-		for _, file := range files {
-			if strings.EqualFold(file.Name(), filepath.Base(fullPath)) {
-				http.Error(w, "a file or folder with the same name already exists (case-insensitive)", http.StatusConflict)
-				return
-			}
-		}
+	newFolderName := filepath.Base(fullPath)
+	dirPath := filepath.Dir(fullPath)
+
+	// Check for a case-insensitive conflict before creating the folder.
+	if exists, err := existsCaseInsensitive(dirPath, newFolderName, ""); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	} else if exists {
+		http.Error(w, "A file or folder with the same name already exists (case-insensitive)", http.StatusConflict)
+		return
 	}
 
 	if err := os.MkdirAll(fullPath, 0755); err != nil {
@@ -592,6 +615,17 @@ func importHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		
 	} else if strings.HasSuffix(fileName, ".md") || strings.HasSuffix(fileName, ".txt") {
+		// New check for importing single files
+		newBaseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+		dirPath := filepath.Dir(filePath)
+		if exists, err := existsCaseInsensitive(dirPath, newBaseName, ""); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else if exists {
+			http.Error(w, "An item with the same name already exists (case-insensitive)", http.StatusConflict)
+			return
+		}
+
 		outFile, err := os.Create(filePath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -639,25 +673,35 @@ func restoreItemFromTrash(w http.ResponseWriter, r *http.Request) {
     vars := mux.Vars(r)
     id := vars["id"]
     trashPath := filepath.Join(trashDir, id)
+    
+    // Original logic to remove timestamp from restorePath
     restorePath := filepath.Join(dataDir, id)
-
-	// Remove timestamp from filename if it exists
-	ext := filepath.Ext(restorePath)
-	if ext != "" {
-		base := restorePath[0:len(restorePath)-len(ext)]
-		if len(base) > 15 {
-			timestamp := base[len(base)-15:]
-			if _, err := time.Parse("_20060102150405", timestamp); err == nil {
-				restorePath = base[0:len(base)-15] + ext
-			}
-		}
-	} else if len(restorePath) > 15 { // For directories
-		timestamp := restorePath[len(restorePath)-15:]
-		if _, err := time.Parse("_20060102150405", timestamp); err == nil {
-			restorePath = restorePath[0:len(restorePath)-15]
-		}
-	}
-
+    ext := filepath.Ext(restorePath)
+    if ext != "" {
+        base := restorePath[0:len(restorePath)-len(ext)]
+        if len(base) > 15 {
+            timestamp := base[len(base)-15:]
+            if _, err := time.Parse("_20060102150405", timestamp); err == nil {
+                restorePath = base[0:len(base)-15] + ext
+            }
+        }
+    } else if len(restorePath) > 15 {
+        timestamp := restorePath[len(restorePath)-15:]
+        if _, err := time.Parse("_20060102150405", timestamp); err == nil {
+            restorePath = restorePath[0:len(restorePath)-15]
+        }
+    }
+    
+    // Check for conflict at the destination before restoring
+    restoreDir := filepath.Dir(restorePath)
+    restoreBaseName := strings.TrimSuffix(filepath.Base(restorePath), filepath.Ext(restorePath))
+    if exists, err := existsCaseInsensitive(restoreDir, restoreBaseName, ""); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    } else if exists {
+        http.Error(w, "An item with the same name already exists in the destination folder.", http.StatusConflict)
+        return
+    }
 
     if err := os.Rename(trashPath, restorePath); err != nil {
         http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -11,3 +11,17 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Fix for transparent background on the file tree */
+.file-tree-container .ant-tree {
+  background-color: transparent !important;
+}
+
+/* Fix for the dark mode toggle visual bug */
+.ant-switch-checked {
+  background-color: #1677ff !important;
+}
+
+.ant-switch-checked:hover {
+  background-color: #4096ff !important;
+}

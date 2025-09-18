@@ -58,6 +58,11 @@ const useNotes = () => {
     const fetchDocContent = async (id, pushState = true) => {
         if (!id) return;
         try {
+            // Reset state to avoid showing stale content
+            setMarkdown('');
+            setFileContent(null);
+            setIsLoading(true);
+
             const response = await api.fetchDocumentContent(id);
 
             if (pushState) {
@@ -86,6 +91,8 @@ const useNotes = () => {
                 message: "Error fetching content",
                 description: e.message,
             });
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -312,6 +319,7 @@ const useNotes = () => {
         selectedDoc,
         setSelectedDoc,
         markdown,
+        setMarkdown,
         isLoading,
         searchQuery,
         setSearchQuery,
@@ -330,8 +338,6 @@ const useNotes = () => {
         setIsDeleteModalVisible,
         isNewFolderModalVisible,
         setIsNewFolderModalVisible,
-        isNewNoteModalVisible,
-        setIsNewNoteModalVisible,
         isMoveModalVisible,
         setIsMoveModalVisible,
         itemToRename,

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, Empty, Space, Typography } from 'antd';
-import { FileOutlined, FolderOutlined } from '@ant-design/icons';
+import { FolderOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 
@@ -25,7 +25,7 @@ const TableOfContents = ({ title, items, onSelect }) => {
                         onClick={() => onSelect(item)}
                     >
                         <Space>
-                            {item.type === 'folder' ? <FolderOutlined /> : <FileOutlined />}
+                            {item.type === 'folder' ? <FolderOutlined /> : null}
                             <Text>{item.name.replace(/\.md$/, '')}</Text>
                         </Space>
                     </Card>

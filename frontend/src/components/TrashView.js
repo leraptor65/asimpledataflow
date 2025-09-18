@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button, Card, Empty, Space, Tooltip, Typography } from 'antd';
-import { DeleteOutlined, FileOutlined, FolderOutlined, SyncOutlined } from '@ant-design/icons';
+import { DeleteOutlined, FolderOutlined, SyncOutlined } from '@ant-design/icons';
 
 
 const { Title, Text } = Typography;
@@ -18,7 +18,7 @@ const TrashView = ({ items, onRestore, onDelete }) => {
                     <Card key={item.path}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Space>
-                                {item.type === 'file' ? <FileOutlined /> : <FolderOutlined />}
+                                {item.type === 'file' ? null : <FolderOutlined />}
                                 <Text>{item.name}</Text>
                             </Space>
                             <Space>

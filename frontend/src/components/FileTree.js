@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect } from 'react';
 import { Tree, Button, Dropdown, Space } from 'antd';
-import { FolderOutlined, FileOutlined, MoreOutlined, CaretDownOutlined, CaretRightOutlined } from '@ant-design/icons';
+import { FolderOutlined, MoreOutlined, CaretDownOutlined, CaretRightOutlined } from '@ant-design/icons';
 
 const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem }) => {
     return items.map(item => {
@@ -20,7 +20,7 @@ const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFold
         const title = (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                 <Space>
-                    {item.type === 'folder' ? <FolderOutlined /> : <FileOutlined />}
+                    {item.type === 'folder' ? <FolderOutlined /> : null}
                     <span>{item.name}</span>
                 </Space>
                 <Dropdown

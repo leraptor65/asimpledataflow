@@ -29,7 +29,7 @@ import {
     BlockTypeSelect,
     DiffSourceToggleWrapper,
 } from '@mdxeditor/editor';
-import { Button, Typography } from 'antd';
+import { Button, Typography, Spin } from 'antd';
 import TableOfContents from './TableOfContents';
 import TrashView from './TrashView';
 import SettingsView from './SettingsView';
@@ -60,6 +60,7 @@ const NoteEditor = ({ notes, isDarkMode }) => {
         exportAll,
         fileInputRef,
         toggleTheme,
+        isLoading
     } = notes;
 
 
@@ -88,6 +89,14 @@ const NoteEditor = ({ notes, isDarkMode }) => {
 
 
     const renderMainContent = () => {
+        if (isLoading) {
+            return (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                    <Spin size="large" />
+                </div>
+            );
+        }
+
         switch (view) {
             case 'document':
                 return (
@@ -195,7 +204,7 @@ const NoteEditor = ({ notes, isDarkMode }) => {
                 );
             case 'folder':
                 return <TableOfContents
-                    title={selectedFolder.name}
+                    title={selectedFolder.path}
                     items={selectedFolder.children}
                     onSelect={(item) => {
                         if (item.type === 'file') {

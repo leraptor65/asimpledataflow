@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layout, Input, Button, Spin, Tooltip, Menu, Typography, Grid } from 'antd';
+import { Layout, Input, Button, Tooltip, Menu, Typography, Grid } from 'antd';
 import {
     SearchOutlined,
     PlusOutlined,
@@ -21,7 +21,6 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
     const {
         documents,
         setSelectedDoc,
-        isLoading,
         searchQuery,
         setSearchQuery,
         filteredDocuments,
@@ -144,31 +143,25 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
                         </div>
                     )}
                 </div>
-                <div style={{ flex: '1 1 auto', overflowY: 'auto', overflowX: 'hidden', paddingRight: '8px', height: '100%' }}>
+                <div className="file-tree-container" style={{ flex: '1 1 auto', overflowY: 'auto', overflowX: 'hidden', paddingRight: '8px', height: '100%' }}>
                     {!isSidebarCollapsed && (
-                        isLoading ? (
-                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-                                <Spin />
-                            </div>
-                        ) : (
-                            <FileTree
-                                items={filteredDocuments}
-                                onSelect={fetchDocContent}
-                                onSelectFolder={(folder) => {
-                                    setSelectedFolder(folder);
-                                    setView('folder');
-                                }}
-                                onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); setIsRenameModalVisible(true); }}
-                                onDelete={(item) => { setItemToDelete(item); setIsDeleteModalVisible(true); }}
-                                onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); setIsNewNoteModalVisible(true); }}
-                                onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); setIsNewFolderModalVisible(true); }}
-                                onExportItem={(item) => { window.open(`/api/export/${item.path}`, '_blank'); }}
-                                selectedDoc={notes.selectedDoc}
-                                onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); setIsMoveModalVisible(true); }}
-                                expandedKeys={expandedKeys}
-                                setExpandedKeys={setExpandedKeys}
-                            />
-                        )
+                        <FileTree
+                            items={filteredDocuments}
+                            onSelect={fetchDocContent}
+                            onSelectFolder={(folder) => {
+                                setSelectedFolder(folder);
+                                setView('folder');
+                            }}
+                            onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); setIsRenameModalVisible(true); }}
+                            onDelete={(item) => { setItemToDelete(item); setIsDeleteModalVisible(true); }}
+                            onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); setIsNewNoteModalVisible(true); }}
+                            onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); setIsNewFolderModalVisible(true); }}
+                            onExportItem={(item) => { window.open(`/api/export/${item.path}`, '_blank'); }}
+                            selectedDoc={notes.selectedDoc}
+                            onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); setIsMoveModalVisible(true); }}
+                            expandedKeys={expandedKeys}
+                            setExpandedKeys={setExpandedKeys}
+                        />
                     )}
                 </div>
                 <Menu

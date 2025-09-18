@@ -4,6 +4,12 @@ import { Button, Card, Input, Space, Switch, Typography } from 'antd';
 const { Title, Text } = Typography;
 
 const SettingsView = ({ onImport, onExportAll, fileInputRef, toggleTheme, isDarkMode }) => {
+    const handleImportClick = () => {
+        if (fileInputRef.current) {
+            fileInputRef.current.click();
+        }
+    };
+
     return (
         <div>
             <Title level={2} style={{ marginBottom: '1rem' }}>Settings</Title>
@@ -17,7 +23,7 @@ const SettingsView = ({ onImport, onExportAll, fileInputRef, toggleTheme, isDark
                 <Card title="Import">
                     <Text style={{ marginBottom: '1rem', display: 'block' }}>Import notes from a .md or .zip file.</Text>
                     <Input type="file" ref={fileInputRef} onChange={onImport} style={{ display: 'none' }} />
-                    <Button type="primary" onClick={() => fileInputRef.current.click()}>
+                    <Button type="primary" onClick={handleImportClick}>
                         Import
                     </Button>
                 </Card>

@@ -13,9 +13,8 @@ function App() {
     const notes = useNotes();
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-    const screens = {
-        xs: true, // Mocking useBreakpoint for simplicity
-    };
+    // Dynamic width for the main content to adjust for the sidebar.
+    const mainContentMarginLeft = isSidebarCollapsed ? 80 : 280;
 
     return (
         <ConfigProvider
@@ -23,7 +22,7 @@ function App() {
                 algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
             }}
         >
-            <Layout style={{ minHeight: '100vh' }}>
+            <Layout style={{ minHeight: '100vh', display: 'flex', flexDirection: 'row' }}>
                 <Sidebar
                     notes={notes}
                     isSidebarCollapsed={isSidebarCollapsed}
@@ -31,7 +30,7 @@ function App() {
                     toggleTheme={toggleTheme}
                     isDarkMode={isDarkMode}
                 />
-                <Layout style={{ marginLeft: isSidebarCollapsed ? (screens.xs ? 0 : 80) : 280, transition: 'margin-left 0.2s' }}>
+                <Layout style={{ marginLeft: mainContentMarginLeft, transition: 'margin-left 0.2s' }}>
                     <Content style={{ padding: '1rem', display: 'flex', flexDirection: 'column', height: '100vh', overflowY: 'auto' }}>
                         <NoteEditor notes={notes} isDarkMode={isDarkMode} />
                     </Content>
