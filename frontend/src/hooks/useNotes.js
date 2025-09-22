@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { notification } from 'antd';
+import { notification, List } from 'antd';
 import * as api from '../api';
 
 const API_URL = '/api'; // Define API_URL within the hook's scope
@@ -9,6 +9,7 @@ const useNotes = () => {
     const [selectedDoc, setSelectedDoc] = useState(null);
     const [markdown, setMarkdown] = useState('');
     const [isLoading, setIsLoading] = useState(true);
+    const [isResolving, setIsResolving] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [view, setView] = useState('welcome');
     const [selectedFolder, setSelectedFolder] = useState(null);
@@ -50,6 +51,14 @@ const useNotes = () => {
             setIsLoading(false);
         }
     };
+
+    useEffect(() => {
+        if (selectedDoc) {
+            document.title = `${selectedDoc} - A Simple Data Flow`;
+        } else {
+            document.title = 'A Simple Data Flow';
+        }
+    }, [selectedDoc]);
 
     useEffect(() => {
         fetchDocs();
@@ -288,6 +297,49 @@ const useNotes = () => {
         }
     };
     
+    const handleResolveConflicts = async () => {
+        setIsResolving(true);
+        try {
+            const operations = await api.resolveNameConflicts();
+            if (operations && operations.length > 0) {
+                notification.success({
+                    message: "Data integrity check complete",
+                    description: (
+                        <div>
+                            <p>The following items were renamed to resolve conflicts:</p>
+                            <List
+                                size="small"
+                                bordered
+                                dataSource={operations}
+                                renderItem={item => (
+                                    <List.Item>
+                                        <span style={{ opacity: 0.7 }}>{item.oldPath}</span>
+                                        <span style={{ margin: '0 8px' }}>→</span>
+                                        <span style={{ fontWeight: 'bold' }}>{item.newPath}</span>
+                                    </List.Item>
+                                )}
+                            />
+                        </div>
+                    ),
+                    duration: 10,
+                });
+            } else {
+                notification.success({
+                    message: "Data integrity check complete",
+                    description: "No naming conflicts found.",
+                });
+            }
+            fetchDocs();
+        } catch (e) {
+            notification.error({
+                message: "Error checking data integrity",
+                description: e.message,
+            });
+        } finally {
+            setIsResolving(false);
+        }
+    };
+
     const filteredDocuments = useMemo(() => {
         if (!searchQuery) {
             return documents;
@@ -321,6 +373,7 @@ const useNotes = () => {
         markdown,
         setMarkdown,
         isLoading,
+        isResolving,
         searchQuery,
         setSearchQuery,
         filteredDocuments,
@@ -370,8 +423,10 @@ const useNotes = () => {
         exportAll,
         getTrash,
         restoreItem,
-        deletePermanently
+        deletePermanently,
+        handleResolveConflicts,
     };
 };
 
 export default useNotes;
+

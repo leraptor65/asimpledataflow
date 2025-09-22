@@ -60,7 +60,9 @@ const NoteEditor = ({ notes, isDarkMode }) => {
         exportAll,
         fileInputRef,
         toggleTheme,
-        isLoading
+        isLoading,
+        handleResolveConflicts,
+        isResolving,
     } = notes;
 
 
@@ -217,7 +219,15 @@ const NoteEditor = ({ notes, isDarkMode }) => {
             case 'trash':
                 return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} />;
             case 'settings':
-                return <SettingsView onImport={importFile} onExportAll={exportAll} fileInputRef={fileInputRef} toggleTheme={toggleTheme} isDarkMode={isDarkMode} />;
+                return <SettingsView 
+                            onImport={importFile} 
+                            onExportAll={exportAll} 
+                            fileInputRef={fileInputRef} 
+                            toggleTheme={toggleTheme} 
+                            isDarkMode={isDarkMode} 
+                            onResolveConflicts={handleResolveConflicts}
+                            isResolving={isResolving}
+                        />;
             case 'welcome':
             default:
                 return <TableOfContents

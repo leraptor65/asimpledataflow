@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 // The path to the directory where markdown files are stored.
 var dataDir = "/app/data"
 var trashDir = "/app/data/.trash"
-var imagesDir = "/app/data/images"
+var imagesDir = "/app/data/.images"
 
 // FileSystemItem represents a file or folder in the directory tree.
 type FileSystemItem struct {
@@ -27,6 +28,12 @@ type FileSystemItem struct {
 	Path     string           `json:"path"`
 	Type     string           `json:"type"`
 	Children []FileSystemItem `json:"children,omitempty"`
+}
+
+// RenameOperation records a single rename action.
+type RenameOperation struct {
+	OldPath string `json:"oldPath"`
+	NewPath string `json:"newPath"`
 }
 
 // existsCaseInsensitive checks if an item with the given name (case-insensitive) already exists in a directory.
@@ -59,6 +66,129 @@ func existsCaseInsensitive(dirPath, name, exclude string) (bool, error) {
 	return false, nil
 }
 
+// resolveNameConflicts walks through the data directory and renames files/folders
+// that have case-insensitive name collisions.
+func resolveNameConflicts() ([]RenameOperation, error) {
+	var operations []RenameOperation
+	// A map where the key is a directory path and the value is another map
+	// of lowercased base names to their full paths.
+	dirMap := make(map[string]map[string][]string)
+
+	// First, walk the entire tree to collect all paths
+	err := filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		// Skip the root dataDir itself
+		if path == dataDir {
+			return nil
+		}
+
+		// If it's a direct child of dataDir and a dotfile/dotfolder, skip it and its children.
+		dir, name := filepath.Split(path)
+		if filepath.Clean(dir) == filepath.Clean(dataDir) && strings.HasPrefix(name, ".") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if info.IsDir() {
+			return nil // We only process files and folders within a directory in the next step
+		}
+
+		dir = filepath.Dir(path)
+		if _, ok := dirMap[dir]; !ok {
+			dirMap[dir] = make(map[string][]string)
+		}
+
+		baseName := info.Name()
+		if !info.IsDir() {
+			baseName = strings.TrimSuffix(baseName, filepath.Ext(baseName))
+		}
+		lowerBaseName := strings.ToLower(baseName)
+
+		dirMap[dir][lowerBaseName] = append(dirMap[dir][lowerBaseName], path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Now, iterate over the collected paths and resolve conflicts
+	for dir, nameMap := range dirMap {
+		// Need to also check for folders in the same directory
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				lowerBaseName := strings.ToLower(entry.Name())
+				nameMap[lowerBaseName] = append(nameMap[lowerBaseName], filepath.Join(dir, entry.Name()))
+			}
+		}
+
+
+		for lowerBaseName, paths := range nameMap {
+			if len(paths) > 1 {
+				log.Printf("Conflict detected for name '%s' in directory '%s'. Paths: %v", lowerBaseName, dir, paths)
+				for i, oldPath := range paths {
+					info, err := os.Stat(oldPath)
+					if err != nil {
+						log.Printf("Could not stat conflicting path %s: %v", oldPath, err)
+						continue
+					}
+
+					baseName := info.Name()
+					ext := ""
+					if !info.IsDir() {
+						ext = filepath.Ext(baseName)
+						baseName = strings.TrimSuffix(baseName, ext)
+					}
+
+					var newPath string
+					counter := i + 1
+					for {
+						newName := fmt.Sprintf("%s%d%s", baseName, counter, ext)
+						newPath = filepath.Join(dir, newName)
+						// Check if the new path exists (could be another file not in this conflict group)
+						if _, err := os.Stat(newPath); os.IsNotExist(err) {
+							// Also check if another file in the same conflict group was renamed to this path
+							isUniqueInGroup := true
+							for _, p := range paths {
+								if p == newPath {
+									isUniqueInGroup = false
+									break
+								}
+							}
+							if isUniqueInGroup {
+								break // Found a unique name
+							}
+						}
+						counter++
+					}
+
+					log.Printf("Renaming '%s' to '%s' to resolve conflict.", oldPath, newPath)
+					if err := os.Rename(oldPath, newPath); err != nil {
+						log.Printf("Error renaming conflicting file %s: %v", oldPath, err)
+					} else {
+						relOldPath, _ := filepath.Rel(dataDir, oldPath)
+						relNewPath, _ := filepath.Rel(dataDir, newPath)
+						op := RenameOperation{OldPath: relOldPath, NewPath: relNewPath}
+						operations = append(operations, op)
+					}
+					// Update the path in our list to reflect the rename, for the uniqueness check
+					paths[i] = newPath
+				}
+			}
+		}
+	}
+
+	return operations, nil
+}
+
+
 func main() {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		log.Fatalf("failed to create data directory: %v", err)
@@ -88,10 +218,25 @@ func main() {
 	api.HandleFunc("/trash/restore/{id:.*}", restoreItemFromTrash).Methods("PUT")
 	api.HandleFunc("/trash/delete/{id:.*}", deleteItemPermanently).Methods("DELETE")
 
+	api.HandleFunc("/settings/resolve-conflicts", resolveConflictsHandler).Methods("POST")
+
 	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", http.FileServer(http.Dir(imagesDir))))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("/app/frontend/build")))
 	log.Printf("A Simple Data Flow server listening on port 8000...")
 	log.Fatal(http.ListenAndServe(":8000", r))
+}
+
+func resolveConflictsHandler(w http.ResponseWriter, r *http.Request) {
+	operations, err := resolveNameConflicts()
+	if err != nil {
+		log.Printf("Error resolving name conflicts: %v", err)
+		http.Error(w, "Failed to resolve name conflicts", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(operations); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // uploadImageHandler handles image uploads for the markdown editor.
@@ -733,3 +878,4 @@ func deleteItemPermanently(w http.ResponseWriter, r *http.Request) {
     }
     w.WriteHeader(http.StatusOK)
 }
+

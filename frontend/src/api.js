@@ -106,3 +106,15 @@ export const deleteItemPermanently = async (id) => {
         throw new Error('Could not delete item permanently');
     }
 }
+
+export const resolveNameConflicts = async () => {
+    const response = await fetch(`${API_URL}/settings/resolve-conflicts`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+    }
+    return response.json();
+};
+
