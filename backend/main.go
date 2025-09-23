@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +22,8 @@ import (
 var dataDir = "/app/data"
 var trashDir = "/app/data/.trash"
 var imagesDir = "/app/data/.images"
+var logsDir = "/app/data/.logs"
+var logFile = filepath.Join(logsDir, "activity.log")
 
 // FileSystemItem represents a file or folder in the directory tree.
 type FileSystemItem struct {
@@ -34,6 +37,28 @@ type FileSystemItem struct {
 type RenameOperation struct {
 	OldPath string `json:"oldPath"`
 	NewPath string `json:"newPath"`
+}
+
+// MarkdownFixOperation records a file that was fixed.
+type MarkdownFixOperation struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+func logActivity(message string) {
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("Error opening log file: %v", err)
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	logEntry := fmt.Sprintf("[%s] %s\n", timestamp, message)
+
+	if _, err := f.WriteString(logEntry); err != nil {
+		log.Printf("Error writing to log file: %v", err)
+	}
 }
 
 // existsCaseInsensitive checks if an item with the given name (case-insensitive) already exists in a directory.
@@ -70,124 +95,93 @@ func existsCaseInsensitive(dirPath, name, exclude string) (bool, error) {
 // that have case-insensitive name collisions.
 func resolveNameConflicts() ([]RenameOperation, error) {
 	var operations []RenameOperation
-	// A map where the key is a directory path and the value is another map
-	// of lowercased base names to their full paths.
-	dirMap := make(map[string]map[string][]string)
+	// A map to hold directories and the items within them, to check for conflicts.
+	// Key: directory path, Value: map of lower-case base names to full paths.
+	dirContents := make(map[string]map[string]string)
 
-	// First, walk the entire tree to collect all paths
 	err := filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		// Skip the root dataDir itself
-		if path == dataDir {
-			return nil
+
+		// Skip special directories
+		if info.IsDir() {
+			if path == trashDir || path == imagesDir || path == logsDir {
+				return filepath.SkipDir
+			}
 		}
 
-		// If it's a direct child of dataDir and a dotfile/dotfolder, skip it and its children.
-		dir, name := filepath.Split(path)
-		if filepath.Clean(dir) == filepath.Clean(dataDir) && strings.HasPrefix(name, ".") {
+		// Ignore root and special directories content
+		parentDir := filepath.Dir(path)
+		if parentDir == dataDir && strings.HasPrefix(info.Name(), ".") {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if info.IsDir() {
-			return nil // We only process files and folders within a directory in the next step
+		if path == dataDir {
+			return nil
 		}
 
-		dir = filepath.Dir(path)
-		if _, ok := dirMap[dir]; !ok {
-			dirMap[dir] = make(map[string][]string)
-		}
-
-		baseName := info.Name()
+		dir := filepath.Dir(path)
+		name := info.Name()
+		lowerName := strings.ToLower(name)
 		if !info.IsDir() {
-			baseName = strings.TrimSuffix(baseName, filepath.Ext(baseName))
+			ext := filepath.Ext(name)
+			lowerName = strings.ToLower(strings.TrimSuffix(name, ext))
 		}
-		lowerBaseName := strings.ToLower(baseName)
 
-		dirMap[dir][lowerBaseName] = append(dirMap[dir][lowerBaseName], path)
+		if _, ok := dirContents[dir]; !ok {
+			dirContents[dir] = make(map[string]string)
+		}
+
+		if existingPath, ok := dirContents[dir][lowerName]; ok {
+			// Conflict detected
+			log.Printf("Conflict detected for name '%s' in directory '%s'. Paths: %s, %s", lowerName, dir, existingPath, path)
+
+			var newPath string
+			baseName := name
+			ext := ""
+			if !info.IsDir() {
+				ext = filepath.Ext(name)
+				baseName = strings.TrimSuffix(name, ext)
+			}
+
+			counter := 1
+			for {
+				newName := fmt.Sprintf("%s-%d%s", baseName, counter, ext)
+				newPath = filepath.Join(dir, newName)
+				if _, err := os.Stat(newPath); os.IsNotExist(err) {
+					break
+				}
+				counter++
+			}
+
+			log.Printf("Renaming '%s' to '%s' to resolve conflict.", path, newPath)
+			if err := os.Rename(path, newPath); err != nil {
+				log.Printf("Error renaming conflicting item %s: %v", path, err)
+				return nil // Continue walking
+			}
+
+			relOldPath, _ := filepath.Rel(dataDir, path)
+			relNewPath, _ := filepath.Rel(dataDir, newPath)
+			op := RenameOperation{OldPath: relOldPath, NewPath: relNewPath}
+			operations = append(operations, op)
+			logActivity(fmt.Sprintf("DATA INTEGRITY: Renamed '%s' to '%s'", relOldPath, relNewPath))
+
+			// Update map with new path to avoid repeated conflicts in the same run
+			dirContents[dir][strings.ToLower(strings.TrimSuffix(filepath.Base(newPath), filepath.Ext(newPath)))] = newPath
+
+		} else {
+			dirContents[dir][lowerName] = path
+		}
+
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
 
-	// Now, iterate over the collected paths and resolve conflicts
-	for dir, nameMap := range dirMap {
-		// Need to also check for folders in the same directory
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, entry := range entries {
-			if entry.IsDir() {
-				lowerBaseName := strings.ToLower(entry.Name())
-				nameMap[lowerBaseName] = append(nameMap[lowerBaseName], filepath.Join(dir, entry.Name()))
-			}
-		}
-
-
-		for lowerBaseName, paths := range nameMap {
-			if len(paths) > 1 {
-				log.Printf("Conflict detected for name '%s' in directory '%s'. Paths: %v", lowerBaseName, dir, paths)
-				for i, oldPath := range paths {
-					info, err := os.Stat(oldPath)
-					if err != nil {
-						log.Printf("Could not stat conflicting path %s: %v", oldPath, err)
-						continue
-					}
-
-					baseName := info.Name()
-					ext := ""
-					if !info.IsDir() {
-						ext = filepath.Ext(baseName)
-						baseName = strings.TrimSuffix(baseName, ext)
-					}
-
-					var newPath string
-					counter := i + 1
-					for {
-						newName := fmt.Sprintf("%s%d%s", baseName, counter, ext)
-						newPath = filepath.Join(dir, newName)
-						// Check if the new path exists (could be another file not in this conflict group)
-						if _, err := os.Stat(newPath); os.IsNotExist(err) {
-							// Also check if another file in the same conflict group was renamed to this path
-							isUniqueInGroup := true
-							for _, p := range paths {
-								if p == newPath {
-									isUniqueInGroup = false
-									break
-								}
-							}
-							if isUniqueInGroup {
-								break // Found a unique name
-							}
-						}
-						counter++
-					}
-
-					log.Printf("Renaming '%s' to '%s' to resolve conflict.", oldPath, newPath)
-					if err := os.Rename(oldPath, newPath); err != nil {
-						log.Printf("Error renaming conflicting file %s: %v", oldPath, err)
-					} else {
-						relOldPath, _ := filepath.Rel(dataDir, oldPath)
-						relNewPath, _ := filepath.Rel(dataDir, newPath)
-						op := RenameOperation{OldPath: relOldPath, NewPath: relNewPath}
-						operations = append(operations, op)
-					}
-					// Update the path in our list to reflect the rename, for the uniqueness check
-					paths[i] = newPath
-				}
-			}
-		}
-	}
-
-	return operations, nil
+	return operations, err
 }
-
 
 func main() {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -198,6 +192,9 @@ func main() {
 	}
 	if err := os.MkdirAll(imagesDir, 0755); err != nil {
 		log.Fatalf("failed to create images directory: %v", err)
+	}
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		log.Fatalf("failed to create logs directory: %v", err)
 	}
 
 	r := mux.NewRouter()
@@ -219,6 +216,8 @@ func main() {
 	api.HandleFunc("/trash/delete/{id:.*}", deleteItemPermanently).Methods("DELETE")
 
 	api.HandleFunc("/settings/resolve-conflicts", resolveConflictsHandler).Methods("POST")
+	api.HandleFunc("/settings/fix-markdown", fixMarkdownFilesHandler).Methods("POST")
+	api.HandleFunc("/logs", getLogsHandler).Methods("GET")
 
 	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", http.FileServer(http.Dir(imagesDir))))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("/app/frontend/build")))
@@ -237,6 +236,138 @@ func resolveConflictsHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(operations); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
+}
+
+func fixMarkdownFilesHandler(w http.ResponseWriter, r *http.Request) {
+	var operations []MarkdownFixOperation
+	// Regex for lines containing malformed image links like ![](path " =widthxheight")
+	imgRegex := regexp.MustCompile(`(?m)^.*!\[.*?\]\(.*?\s+" =.*?"\).*$`)
+	// Regex for lines that only contain '***' which might be intended as a horizontal rule
+	hrRegex := regexp.MustCompile(`(?m)^\s*\*\*\*\s*$`)
+	// Regex for lines that start with an escaped list item like `\*`
+	escapedListRegex := regexp.MustCompile(`(?m)^\s*\\\*.*$`)
+	// Regex for problematic line breaks `  \`
+	lineBreakRegex := regexp.MustCompile(`(?m)^\s*\\\s*$`)
+	// Regex for code blocks without a language identifier
+	untypedCodeBlockRegex := regexp.MustCompile("(?m)^```[\\s]*$\\n[\\s\\S]*?^```[\\s]*$")
+
+	err := filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				log.Printf("Error reading file %s: %v", path, readErr)
+				return nil // Skip this file
+			}
+
+			originalContent := string(content)
+			newContent := originalContent
+			fixed := false
+			var reasons []string
+
+			// Function to wrap matches in a comment
+			commentOut := func(match string, issue string) string {
+				return fmt.Sprintf("<!-- RENDER-FIX: The following block was commented out due to a potential %s error. Please review. Original content: \n%s\n-->", issue, match)
+			}
+
+			// Find and comment out malformed image links
+			if imgRegex.MatchString(newContent) {
+				newContent = imgRegex.ReplaceAllStringFunc(newContent, func(match string) string {
+					reasons = append(reasons, "Commented out line with invalid image link syntax.")
+					return commentOut(match, "image link")
+				})
+				fixed = true
+			}
+
+			// Find and comment out '***' horizontal rules
+			if hrRegex.MatchString(newContent) {
+				newContent = hrRegex.ReplaceAllStringFunc(newContent, func(match string) string {
+					reasons = append(reasons, "Commented out line with non-standard horizontal rule.")
+					return commentOut(match, "horizontal rule")
+				})
+				fixed = true
+			}
+
+			// Find and comment out escaped list items
+			if escapedListRegex.MatchString(newContent) {
+				newContent = escapedListRegex.ReplaceAllStringFunc(newContent, func(match string) string {
+					reasons = append(reasons, "Commented out line with escaped list item.")
+					return commentOut(match, "list format")
+				})
+				fixed = true
+			}
+
+			// Find and comment out problematic line breaks
+			if lineBreakRegex.MatchString(newContent) {
+				newContent = lineBreakRegex.ReplaceAllStringFunc(newContent, func(match string) string {
+					reasons = append(reasons, "Commented out line with problematic line break.")
+					return commentOut(match, "line break")
+				})
+				fixed = true
+			}
+
+			// Find and comment out untyped code blocks
+			if untypedCodeBlockRegex.MatchString(newContent) {
+				newContent = untypedCodeBlockRegex.ReplaceAllStringFunc(newContent, func(match string) string {
+					reasons = append(reasons, "Commented out code block with missing language identifier.")
+					return commentOut(match, "code block format")
+				})
+				fixed = true
+			}
+
+			if fixed {
+				// To avoid duplicate reasons
+				uniqueReasons := make(map[string]bool)
+				for _, r := range reasons {
+					uniqueReasons[r] = true
+				}
+				var reasonSlice []string
+				for r := range uniqueReasons {
+					reasonSlice = append(reasonSlice, r)
+				}
+				reasonStr := strings.Join(reasonSlice, " ")
+
+				relPath, _ := filepath.Rel(dataDir, path)
+				if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+					log.Printf("Error writing fixed markdown to %s: %v", path, err)
+				} else {
+					operations = append(operations, MarkdownFixOperation{Path: relPath, Reason: reasonStr})
+					logActivity(fmt.Sprintf("MARKDOWN FIX: Applied fixes to '%s': %s", relPath, reasonStr))
+				}
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("Error walking directory for markdown fixes: %v", err)
+		http.Error(w, "Failed to fix markdown files", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(operations); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+func getLogsHandler(w http.ResponseWriter, r *http.Request) {
+	content, err := os.ReadFile(logFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("No logs found."))
+			return
+		}
+		log.Printf("Error reading log file: %v", err)
+		http.Error(w, "Failed to read log file", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write(content)
 }
 
 // uploadImageHandler handles image uploads for the markdown editor.
@@ -292,17 +423,20 @@ func buildTree(basePath string) (FileSystemItem, error) {
 		if path == basePath {
 			return nil
 		}
-		
+
 		relPath, err := filepath.Rel(basePath, path)
 		if err != nil {
 			return err
 		}
-		
+
 		// Ignore hidden files and the trash directory
 		if strings.HasPrefix(relPath, ".") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		
+
 		segments := strings.Split(relPath, string(os.PathSeparator))
 		current := &root
 		for i, segment := range segments {
@@ -430,10 +564,10 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newBaseName := strings.TrimSuffix(filepath.Base(docID), filepath.Ext(docID))
-	
+
 	// Check for a case-insensitive conflict with existing files or folders.
 	// The path to exclude is the new one with the .md extension, as we are creating or overwriting this specific file.
-	if exists, err := existsCaseInsensitive(dir, newBaseName, filePath + ".md"); err != nil {
+	if exists, err := existsCaseInsensitive(dir, newBaseName, filePath+".md"); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else if exists {
@@ -517,16 +651,16 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	oldPath := vars["id"]
-	oldFilePath := filepath.Join(dataDir, oldPath)
+	oldRelativePath := vars["id"]
+	oldFullPath := filepath.Join(dataDir, oldRelativePath)
 
-	info, err := os.Stat(oldFilePath)
+	info, err := os.Stat(oldFullPath)
 	if err != nil {
 		extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
 		found := false
 		for _, ext := range extensions {
-			if stat, err := os.Stat(oldFilePath + ext); err == nil {
-				oldFilePath += ext
+			if stat, err := os.Stat(oldFullPath + ext); err == nil {
+				oldFullPath += ext
 				info = stat
 				found = true
 				break
@@ -538,39 +672,44 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var newFilePath string
-	newBaseName := req.NewPath
+	newRelativePath := req.NewPath
+	var newFullPath string
 	if info.IsDir() {
-		newFilePath = filepath.Join(filepath.Dir(oldFilePath), newBaseName)
+		newFullPath = filepath.Join(dataDir, newRelativePath)
 	} else {
-		ext := filepath.Ext(oldFilePath)
-		newFilePath = filepath.Join(filepath.Dir(oldFilePath), newBaseName+ext)
+		ext := filepath.Ext(oldFullPath)
+		newFullPath = filepath.Join(dataDir, newRelativePath+ext)
 	}
 
-	if !strings.HasPrefix(newFilePath, dataDir) {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+	if !strings.HasPrefix(newFullPath, dataDir) {
+		http.Error(w, "invalid new path", http.StatusBadRequest)
 		return
 	}
-	
-	// Check for a case-insensitive conflict at the destination. We exclude the old file itself.
-	if exists, err := existsCaseInsensitive(filepath.Dir(newFilePath), newBaseName, oldFilePath); err != nil {
+
+	newBaseName := strings.TrimSuffix(filepath.Base(newRelativePath), filepath.Ext(newRelativePath))
+	newDir := filepath.Dir(newFullPath)
+
+	if exists, err := existsCaseInsensitive(newDir, newBaseName, oldFullPath); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	} else if exists {
-		http.Error(w, "An item with the same name already exists (case-insensitive)", http.StatusConflict)
+		http.Error(w, "An item with the same name already exists in the destination.", http.StatusConflict)
 		return
 	}
 
-	// Ensure destination directory exists
-	if err := os.MkdirAll(filepath.Dir(newFilePath), 0755); err != nil {
-		http.Error(w, "could not create destination directory: "+err.Error(), http.StatusInternalServerError)
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		http.Error(w, "Could not create destination directory: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if err := os.Rename(oldFilePath, newFilePath); err != nil {
-		http.Error(w, "could not move item: "+err.Error(), http.StatusInternalServerError)
+	if err := os.Rename(oldFullPath, newFullPath); err != nil {
+		http.Error(w, "Could not rename/move item: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	relOldPath, _ := filepath.Rel(dataDir, oldFullPath)
+	relNewPath, _ := filepath.Rel(dataDir, newFullPath)
+	logActivity(fmt.Sprintf("MOVE/RENAME: Moved '%s' to '%s'", relOldPath, relNewPath))
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
@@ -580,7 +719,7 @@ func createFolder(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	folderPath := vars["id"]
 	fullPath := filepath.Join(dataDir, folderPath)
-	
+
 	if !strings.HasPrefix(fullPath, dataDir) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
@@ -664,7 +803,7 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-	
+
 	info, err := os.Stat(itemPath)
 	// Try with supported extensions
 	extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
@@ -689,7 +828,7 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 
 	if info.IsDir() { // Export folder as zip
 		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+ info.Name() +".zip\"")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+info.Name()+".zip\"")
 		zipWriter := zip.NewWriter(w)
 		defer zipWriter.Close()
 		zipSource(itemPath, zipWriter)
@@ -701,7 +840,7 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		defer file.Close()
 
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+ info.Name() +"\"")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+info.Name()+"\"")
 		http.ServeFile(w, r, itemPath)
 	}
 }
@@ -736,12 +875,12 @@ func importHandler(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Invalid path in zip file", http.StatusBadRequest)
 				return
 			}
-			
+
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			
+
 			writer, err := os.Create(path)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -758,7 +897,7 @@ func importHandler(w http.ResponseWriter, r *http.Request) {
 
 			io.Copy(writer, reader)
 		}
-		
+
 	} else if strings.HasSuffix(fileName, ".md") || strings.HasSuffix(fileName, ".txt") {
 		// New check for importing single files
 		newBaseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
@@ -782,100 +921,99 @@ func importHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Only .md, .txt, and .zip files are supported", http.StatusBadRequest)
 		return
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
 
-
 // Recycle Bin Handlers
 
 func listTrashItems(w http.ResponseWriter, r *http.Request) {
-    var items []FileSystemItem
-    files, err := os.ReadDir(trashDir)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
+	var items []FileSystemItem
+	files, err := os.ReadDir(trashDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-    for _, file := range files {
-        itemType := "file"
-        if file.IsDir() {
-            itemType = "folder"
-        }
-        items = append(items, FileSystemItem{
-            Name: file.Name(),
-            Path: file.Name(),
-            Type: itemType,
-        })
-    }
+	for _, file := range files {
+		itemType := "file"
+		if file.IsDir() {
+			itemType = "folder"
+		}
+		items = append(items, FileSystemItem{
+			Name: file.Name(),
+			Path: file.Name(),
+			Type: itemType,
+		})
+	}
 
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(items)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
 }
 
 func restoreItemFromTrash(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    id := vars["id"]
-    trashPath := filepath.Join(trashDir, id)
-    
-    // Original logic to remove timestamp from restorePath
-    restorePath := filepath.Join(dataDir, id)
-    ext := filepath.Ext(restorePath)
-    if ext != "" {
-        base := restorePath[0:len(restorePath)-len(ext)]
-        if len(base) > 15 {
-            timestamp := base[len(base)-15:]
-            if _, err := time.Parse("_20060102150405", timestamp); err == nil {
-                restorePath = base[0:len(base)-15] + ext
-            }
-        }
-    } else if len(restorePath) > 15 {
-        timestamp := restorePath[len(restorePath)-15:]
-        if _, err := time.Parse("_20060102150405", timestamp); err == nil {
-            restorePath = restorePath[0:len(restorePath)-15]
-        }
-    }
-    
-    // Check for conflict at the destination before restoring
-    restoreDir := filepath.Dir(restorePath)
-    restoreBaseName := strings.TrimSuffix(filepath.Base(restorePath), filepath.Ext(restorePath))
-    if exists, err := existsCaseInsensitive(restoreDir, restoreBaseName, ""); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    } else if exists {
-        http.Error(w, "An item with the same name already exists in the destination folder.", http.StatusConflict)
-        return
-    }
+	vars := mux.Vars(r)
+	id := vars["id"]
+	trashPath := filepath.Join(trashDir, id)
 
-    if err := os.Rename(trashPath, restorePath); err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    w.WriteHeader(http.StatusOK)
+	// Original logic to remove timestamp from restorePath
+	restorePath := filepath.Join(dataDir, id)
+	ext := filepath.Ext(restorePath)
+	if ext != "" {
+		base := restorePath[0 : len(restorePath)-len(ext)]
+		if len(base) > 15 {
+			timestamp := base[len(base)-15:]
+			if _, err := time.Parse("_20060102150405", timestamp); err == nil {
+				restorePath = base[0:len(base)-15] + ext
+			}
+		}
+	} else if len(restorePath) > 15 {
+		timestamp := restorePath[len(restorePath)-15:]
+		if _, err := time.Parse("_20060102150405", timestamp); err == nil {
+			restorePath = restorePath[0 : len(restorePath)-15]
+		}
+	}
+
+	// Check for conflict at the destination before restoring
+	restoreDir := filepath.Dir(restorePath)
+	restoreBaseName := strings.TrimSuffix(filepath.Base(restorePath), filepath.Ext(restorePath))
+	if exists, err := existsCaseInsensitive(restoreDir, restoreBaseName, ""); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	} else if exists {
+		http.Error(w, "An item with the same name already exists in the destination folder.", http.StatusConflict)
+		return
+	}
+
+	if err := os.Rename(trashPath, restorePath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func deleteItemPermanently(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
-    id := vars["id"]
-    trashPath := filepath.Join(trashDir, id)
+	vars := mux.Vars(r)
+	id := vars["id"]
+	trashPath := filepath.Join(trashDir, id)
 
-    info, err := os.Stat(trashPath)
-    if err != nil {
-        http.Error(w, "item not found in trash", http.StatusNotFound)
-        return
-    }
+	info, err := os.Stat(trashPath)
+	if err != nil {
+		http.Error(w, "item not found in trash", http.StatusNotFound)
+		return
+	}
 
-    if info.IsDir() {
-        err = os.RemoveAll(trashPath)
-    } else {
-        err = os.Remove(trashPath)
-    }
+	if info.IsDir() {
+		err = os.RemoveAll(trashPath)
+	} else {
+		err = os.Remove(trashPath)
+	}
 
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    w.WriteHeader(http.StatusOK)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 

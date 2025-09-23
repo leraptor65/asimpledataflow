@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { notification, List } from 'antd';
+import { notification } from 'antd';
 import * as api from '../api';
 
 const API_URL = '/api'; // Define API_URL within the hook's scope
@@ -17,6 +17,11 @@ const useNotes = () => {
     const [diffMarkdown, setDiffMarkdown] = useState('');
     const [fileContent, setFileContent] = useState(null);
     const editorRef = useRef(null);
+
+    const [conflictResults, setConflictResults] = useState(null);
+    const [markdownFixResults, setMarkdownFixResults] = useState(null);
+    const [activityLogs, setActivityLogs] = useState('');
+    const [isFixingMarkdown, setIsFixingMarkdown] = useState(false);
 
 
     const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
@@ -52,16 +57,21 @@ const useNotes = () => {
         }
     };
 
-    useEffect(() => {
-        if (selectedDoc) {
-            document.title = `${selectedDoc} - A Simple Data Flow`;
-        } else {
-            document.title = 'A Simple Data Flow';
+    const fetchLogs = async () => {
+        try {
+            const logs = await api.fetchLogs();
+            setActivityLogs(logs);
+        } catch (e) {
+            notification.error({
+                message: "Error fetching logs",
+                description: e.message,
+            });
         }
-    }, [selectedDoc]);
+    };
 
     useEffect(() => {
         fetchDocs();
+        fetchLogs();
     }, []);
 
     const fetchDocContent = async (id, pushState = true) => {
@@ -147,8 +157,12 @@ const useNotes = () => {
 
     const renameItem = async () => {
         if (!itemToRename || !newNoteName) return;
-        const newPath = newNoteName;
-
+    
+        const oldPathParts = itemToRename.path.split('/');
+        oldPathParts.pop(); // Remove old name
+        const parentPath = oldPathParts.join('/');
+        const newPath = parentPath ? `${parentPath}/${newNoteName}` : newNoteName;
+    
         try {
             await api.renameItem(itemToRename.path, newPath);
             setIsRenameModalVisible(false);
@@ -174,7 +188,7 @@ const useNotes = () => {
             notification.error({ message: "Error deleting item", description: e.message });
         }
     };
-    
+
     const createFolder = async () => {
         if (!newFolderName) {
             notification.warning({ message: "Folder name cannot be empty." });
@@ -296,32 +310,18 @@ const useNotes = () => {
             notification.error({ message: "Error", description: e.message });
         }
     };
-    
+
     const handleResolveConflicts = async () => {
         setIsResolving(true);
+        setConflictResults(null);
         try {
             const operations = await api.resolveNameConflicts();
+            setConflictResults(operations || []);
             if (operations && operations.length > 0) {
                 notification.success({
                     message: "Data integrity check complete",
-                    description: (
-                        <div>
-                            <p>The following items were renamed to resolve conflicts:</p>
-                            <List
-                                size="small"
-                                bordered
-                                dataSource={operations}
-                                renderItem={item => (
-                                    <List.Item>
-                                        <span style={{ opacity: 0.7 }}>{item.oldPath}</span>
-                                        <span style={{ margin: '0 8px' }}>→</span>
-                                        <span style={{ fontWeight: 'bold' }}>{item.newPath}</span>
-                                    </List.Item>
-                                )}
-                            />
-                        </div>
-                    ),
-                    duration: 10,
+                    description: "Naming conflicts have been resolved.",
+                    duration: 5,
                 });
             } else {
                 notification.success({
@@ -330,6 +330,7 @@ const useNotes = () => {
                 });
             }
             fetchDocs();
+            fetchLogs();
         } catch (e) {
             notification.error({
                 message: "Error checking data integrity",
@@ -337,6 +338,35 @@ const useNotes = () => {
             });
         } finally {
             setIsResolving(false);
+        }
+    };
+
+    const handleFixMarkdownFiles = async () => {
+        setIsFixingMarkdown(true);
+        setMarkdownFixResults(null);
+        try {
+            const operations = await api.fixMarkdownFiles();
+            setMarkdownFixResults(operations || []);
+            if (operations && operations.length > 0) {
+                notification.success({
+                    message: "Markdown fix complete",
+                    description: `${operations.length} file(s) were updated.`,
+                    duration: 5,
+                });
+            } else {
+                notification.success({
+                    message: "Markdown fix complete",
+                    description: "No files needed fixing.",
+                });
+            }
+            fetchLogs(); // Refresh logs to show new changes
+        } catch (e) {
+            notification.error({
+                message: "Error fixing markdown files",
+                description: e.message,
+            });
+        } finally {
+            setIsFixingMarkdown(false);
         }
     };
 
@@ -365,7 +395,7 @@ const useNotes = () => {
 
         return filterItems(documents);
     }, [documents, searchQuery]);
-    
+
     return {
         documents,
         selectedDoc,
@@ -391,6 +421,8 @@ const useNotes = () => {
         setIsDeleteModalVisible,
         isNewFolderModalVisible,
         setIsNewFolderModalVisible,
+        isNewNoteModalVisible,
+        setIsNewNoteModalVisible,
         isMoveModalVisible,
         setIsMoveModalVisible,
         itemToRename,
@@ -425,6 +457,14 @@ const useNotes = () => {
         restoreItem,
         deletePermanently,
         handleResolveConflicts,
+        conflictResults,
+        setConflictResults,
+        handleFixMarkdownFiles,
+        isFixingMarkdown,
+        markdownFixResults,
+        setMarkdownFixResults,
+        activityLogs,
+        fetchLogs,
     };
 };
 

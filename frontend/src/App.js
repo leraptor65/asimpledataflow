@@ -32,7 +32,7 @@ function App() {
                 />
                 <Layout style={{ marginLeft: mainContentMarginLeft, transition: 'margin-left 0.2s' }}>
                     <Content style={{ padding: '1rem', display: 'flex', flexDirection: 'column', height: '100vh', overflowY: 'auto' }}>
-                        <NoteEditor notes={notes} isDarkMode={isDarkMode} />
+                        <NoteEditor notes={notes} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
                     </Content>
                 </Layout>
                 <Modals notes={notes} />
@@ -42,3 +42,4 @@ function App() {
 }
 
 export default App;
+

@@ -33,12 +33,11 @@ import { Button, Typography, Spin } from 'antd';
 import TableOfContents from './TableOfContents';
 import TrashView from './TrashView';
 import SettingsView from './SettingsView';
-import * as api from '../api';
 
 
 const { Title } = Typography;
 
-const NoteEditor = ({ notes, isDarkMode }) => {
+const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
 
     const {
         view,
@@ -59,10 +58,17 @@ const NoteEditor = ({ notes, isDarkMode }) => {
         importFile,
         exportAll,
         fileInputRef,
-        toggleTheme,
         isLoading,
         handleResolveConflicts,
         isResolving,
+        conflictResults,
+        setConflictResults,
+        handleFixMarkdownFiles,
+        isFixingMarkdown,
+        markdownFixResults,
+        setMarkdownFixResults,
+        activityLogs,
+        fetchLogs,
     } = notes;
 
 
@@ -219,15 +225,23 @@ const NoteEditor = ({ notes, isDarkMode }) => {
             case 'trash':
                 return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} />;
             case 'settings':
-                return <SettingsView 
-                            onImport={importFile} 
-                            onExportAll={exportAll} 
-                            fileInputRef={fileInputRef} 
-                            toggleTheme={toggleTheme} 
-                            isDarkMode={isDarkMode} 
-                            onResolveConflicts={handleResolveConflicts}
-                            isResolving={isResolving}
-                        />;
+                return <SettingsView
+                    onImport={importFile}
+                    onExportAll={exportAll}
+                    fileInputRef={fileInputRef}
+                    toggleTheme={toggleTheme}
+                    isDarkMode={isDarkMode}
+                    onResolveConflicts={handleResolveConflicts}
+                    isResolving={isResolving}
+                    conflictResults={conflictResults}
+                    setConflictResults={setConflictResults}
+                    onFixMarkdown={handleFixMarkdownFiles}
+                    isFixingMarkdown={isFixingMarkdown}
+                    markdownFixResults={markdownFixResults}
+                    setMarkdownFixResults={setMarkdownFixResults}
+                    activityLogs={activityLogs}
+                    fetchLogs={fetchLogs}
+                />;
             case 'welcome':
             default:
                 return <TableOfContents
@@ -249,3 +263,4 @@ const NoteEditor = ({ notes, isDarkMode }) => {
 };
 
 export default NoteEditor;
+

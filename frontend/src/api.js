@@ -118,3 +118,22 @@ export const resolveNameConflicts = async () => {
     return response.json();
 };
 
+export const fixMarkdownFiles = async () => {
+    const response = await fetch(`${API_URL}/settings/fix-markdown`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+    }
+    return response.json();
+};
+
+export const fetchLogs = async () => {
+    const response = await fetch(`${API_URL}/logs`);
+    if (!response.ok) {
+        throw new Error('Could not fetch logs');
+    }
+    return response.text();
+};
+

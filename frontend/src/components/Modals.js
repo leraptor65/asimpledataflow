@@ -114,7 +114,6 @@ export const Modals = ({ notes }) => {
                                 setDestinationFolder(selectedKeys[0] || '');
                             }}
                             selectedKeys={destinationFolder ? [destinationFolder] : ['']}
-                            defaultExpandAll
                             showIcon
                             blockNode
                         />
