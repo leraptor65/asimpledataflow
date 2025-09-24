@@ -2,8 +2,6 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { notification } from 'antd';
 import * as api from '../api';
 
-const API_URL = '/api'; // Define API_URL within the hook's scope
-
 const useNotes = () => {
     const [documents, setDocuments] = useState([]);
     const [selectedDoc, setSelectedDoc] = useState(null);
@@ -14,9 +12,7 @@ const useNotes = () => {
     const [view, setView] = useState('welcome');
     const [selectedFolder, setSelectedFolder] = useState(null);
     const [trashedItems, setTrashedItems] = useState([]);
-    const [diffMarkdown, setDiffMarkdown] = useState('');
     const [fileContent, setFileContent] = useState(null);
-    const editorRef = useRef(null);
 
     const [conflictResults, setConflictResults] = useState(null);
     const [markdownFixResults, setMarkdownFixResults] = useState(null);
@@ -69,6 +65,19 @@ const useNotes = () => {
         }
     };
 
+    const handleClearLogs = async () => {
+        try {
+            await api.clearLogs();
+            notification.success({ message: "Activity log cleared." });
+            fetchLogs(); // Refresh logs to show it's empty
+        } catch(e) {
+            notification.error({
+                message: "Error clearing logs",
+                description: e.message,
+            });
+        }
+    };
+
     useEffect(() => {
         fetchDocs();
         fetchLogs();
@@ -98,7 +107,6 @@ const useNotes = () => {
             } else if (contentType === 'text/markdown') {
                 const content = await response.text();
                 setMarkdown(content);
-                setDiffMarkdown(content);
                 setView('document');
             } else {
                 const content = await response.text();
@@ -118,8 +126,7 @@ const useNotes = () => {
     const saveDoc = async () => {
         if (!selectedDoc) return;
         try {
-            const currentMarkdown = editorRef.current?.getMarkdown();
-            await api.saveDocument(selectedDoc, currentMarkdown);
+            await api.saveDocument(selectedDoc, markdown); // markdown state is updated by Lexical's OnChangePlugin
             notification.success({
                 message: "Document saved.",
             });
@@ -259,7 +266,7 @@ const useNotes = () => {
 
     const exportAll = async () => {
         try {
-            const response = await fetch(`${API_URL}/export/`);
+            const response = await fetch(`/api/export/`);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -412,9 +419,7 @@ const useNotes = () => {
         selectedFolder,
         setSelectedFolder,
         trashedItems,
-        diffMarkdown,
         fileContent,
-        editorRef,
         isRenameModalVisible,
         setIsRenameModalVisible,
         isDeleteModalVisible,
@@ -465,6 +470,7 @@ const useNotes = () => {
         setMarkdownFixResults,
         activityLogs,
         fetchLogs,
+        handleClearLogs,
     };
 };
 

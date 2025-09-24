@@ -137,3 +137,12 @@ export const fetchLogs = async () => {
     return response.text();
 };
 
+export const clearLogs = async () => {
+    const response = await fetch(`${API_URL}/logs`, {
+        method: 'DELETE',
+    });
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+    }
+};

@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Button, Card, Switch, Typography, List, Empty, Collapse, Space } from 'antd';
-import { SyncOutlined } from '@ant-design/icons';
+import { SyncOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
@@ -21,6 +21,7 @@ const SettingsView = ({
     setMarkdownFixResults,
     activityLogs,
     fetchLogs,
+    onClearLogs
 }) => {
     const handleImportClick = () => {
         if (fileInputRef.current) {
@@ -124,19 +125,32 @@ const SettingsView = ({
                         header="Activity Log"
                         key="1"
                         extra={
-                            <Button
-                                icon={<SyncOutlined />}
-                                size="small"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    fetchLogs();
-                                }}
-                            >
-                                Refresh
-                            </Button>
+                            <Space>
+                                <Button
+                                    icon={<SyncOutlined />}
+                                    size="small"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        fetchLogs();
+                                    }}
+                                >
+                                    Refresh
+                                </Button>
+                                <Button
+                                    icon={<DeleteOutlined />}
+                                    size="small"
+                                    danger
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onClearLogs();
+                                    }}
+                                >
+                                    Clear
+                                </Button>
+                            </Space>
                         }
                     >
-                        <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '300px', overflowY: 'auto', background: '#f5f5f5', padding: '10px', borderRadius: '4px' }}>
+                        <pre className="activity-log-pre">
                             {activityLogs || "No activity yet."}
                         </pre>
                     </Panel>
@@ -147,4 +161,3 @@ const SettingsView = ({
 };
 
 export default SettingsView;
-

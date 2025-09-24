@@ -218,6 +218,7 @@ func main() {
 	api.HandleFunc("/settings/resolve-conflicts", resolveConflictsHandler).Methods("POST")
 	api.HandleFunc("/settings/fix-markdown", fixMarkdownFilesHandler).Methods("POST")
 	api.HandleFunc("/logs", getLogsHandler).Methods("GET")
+	api.HandleFunc("/logs", clearLogsHandler).Methods("DELETE")
 
 	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", http.FileServer(http.Dir(imagesDir))))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("/app/frontend/build")))
@@ -369,6 +370,19 @@ func getLogsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write(content)
 }
+
+func clearLogsHandler(w http.ResponseWriter, r *http.Request) {
+	if err := os.Truncate(logFile, 0); err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("Error clearing log file: %v", err)
+			http.Error(w, "Failed to clear log file", http.StatusInternalServerError)
+			return
+		}
+	}
+	logActivity("LOGS: Activity log cleared.")
+	w.WriteHeader(http.StatusOK)
+}
+
 
 // uploadImageHandler handles image uploads for the markdown editor.
 func uploadImageHandler(w http.ResponseWriter, r *http.Request) {
@@ -1016,4 +1030,3 @@ func deleteItemPermanently(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 }
-
