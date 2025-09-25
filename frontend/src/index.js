@@ -4,8 +4,6 @@ import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 import 'antd/dist/reset.css';
-import 'prismjs/themes/prism-tomorrow.css';
-
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
@@ -15,4 +13,3 @@ root.render(
 );
 
 reportWebVitals();
-

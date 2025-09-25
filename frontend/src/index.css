@@ -12,144 +12,7 @@ body {
   background-color: transparent !important;
 }
 
-/* Lexical Editor Styles */
-.editor-container {
-  margin: 0 auto;
-  border-radius: 6px;
-  color: #000;
-  position: relative;
-  line-height: 20px;
-  font-weight: 400;
-  text-align: left;
-  border: 1px solid #d9d9d9;
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  background-color: #fff;
-}
-
-.editor-container[data-theme='dark'] {
-  border: 1px solid #424242;
-  background-color: #1f1f1f;
-  color: #f0f0f0;
-}
-
-.editor-inner {
-  position: relative;
-  height: 100%;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.editor-input {
-  min-height: 150px;
-  height: 100%;
-  resize: none;
-  font-size: 15px;
-  caret-color: rgb(5, 5, 5);
-  position: relative;
-  tab-size: 4;
-  outline: none;
-  padding: 16px;
-  flex-grow: 1;
-}
-.editor-container[data-theme='dark'] .editor-input {
-  caret-color: #f0f0f0;
-}
-
-.editor-placeholder {
-  color: #999;
-  overflow: hidden;
-  position: absolute;
-  text-overflow: ellipsis;
-  top: 16px;
-  left: 16px;
-  font-size: 15px;
-  user-select: none;
-  pointer-events: none;
-}
-
-/* Toolbar */
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px;
-  border-bottom: 1px solid #d9d9d9;
-  background-color: #fafafa;
-}
-
-.editor-container[data-theme='dark'] .toolbar {
-  background-color: #2a2a2a;
-  border-bottom: 1px solid #424242;
-}
-
-.toolbar .ant-btn-group, .toolbar .ant-btn {
-  vertical-align: middle;
-}
-
-/* Headings */
-.editor-heading-h1 {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 12px;
-}
-.editor-heading-h2 {
-  font-size: 20px;
-  font-weight: 700;
-  margin-bottom: 10px;
-}
-.editor-heading-h3 {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-
-/* Lists */
-.editor-list-ol {
-  padding-left: 30px;
-}
-.editor-list-ul {
-  padding-left: 30px;
-}
-.editor-listitem {
-  margin: 8px 0;
-}
-
-/* Quote */
-.editor-quote {
-  margin: 0;
-  margin-left: 20px;
-  padding-left: 16px;
-  border-left: 4px solid #eee;
-  font-style: italic;
-  color: #666;
-}
-.editor-container[data-theme='dark'] .editor-quote {
-  border-left-color: #444;
-  color: #ccc;
-}
-
-
-/* Code Blocks */
-.editor-code {
-  background-color: #f0f2f5;
-  font-family: Menlo, Consolas, 'Courier New', monospace;
-  display: block;
-  padding: 16px;
-  border-radius: 4px;
-  font-size: 14px;
-  line-height: 1.5;
-  overflow-x: auto;
-  border: 1px solid #d9d9d9;
-}
-
-.editor-container[data-theme='dark'] .editor-code {
-  background-color: #2a2a2a;
-  border: 1px solid #424242;
-}
-
+/* Styles for MDX Editor Code Blocks */
 .code-block-wrapper {
   position: relative;
   margin: 1em 0;
@@ -165,7 +28,7 @@ body {
   border-top-right-radius: 4px;
 }
 
-.editor-container[data-theme='dark'] .code-block-header {
+[data-color-mode="dark"] .code-block-header {
   background-color: #333;
 }
 
@@ -175,7 +38,8 @@ body {
   margin-right: auto;
   text-transform: uppercase;
 }
-.editor-container[data-theme='dark'] .code-block-lang {
+
+[data-color-mode="dark"] .code-block-lang {
   color: #ccc;
 }
 
@@ -188,7 +52,8 @@ body {
   border-radius: 4px;
   font-size: 12px;
 }
-.editor-container[data-theme='dark'] .code-block-copy-btn {
+
+[data-color-mode="dark"] .code-block-copy-btn {
   color: #ccc;
   border-color: #666;
 }
@@ -196,7 +61,8 @@ body {
 .code-block-copy-btn:hover {
   background-color: #d0d0d0;
 }
-.editor-container[data-theme='dark'] .code-block-copy-btn:hover {
+
+[data-color-mode="dark"] .code-block-copy-btn:hover {
   background-color: #444;
 }
 
@@ -206,23 +72,51 @@ body {
   border-top-right-radius: 0;
 }
 
+/* Styles for Markdown Preview */
+.wmde-markdown {
+  background-color: #ffffff;
+}
+
+[data-color-mode="dark"] .wmde-markdown {
+  background-color: #0d1117;
+}
+
+.wmde-markdown pre > code {
+  background-color: #f0f2f5;
+  border-radius: 6px;
+  display: block;
+}
+
+[data-color-mode="dark"] .wmde-markdown pre > code {
+  background-color: #2a2a2a;
+}
+
+/* Styles for MDX Editor Toolbar */
+.w-md-editor-toolbar {
+  padding: 8px !important;
+}
+
+.w-md-editor-toolbar button {
+  padding: 8px !important;
+  height: auto !important;
+  font-size: 16px !important;
+}
+
+
 /* Activity Log Fix */
-.activity-log-container {
+.activity-log-pre {
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 300px;
   overflow-y: auto;
   padding: 10px;
   border-radius: 4px;
-}
-
-.activity-log-container[data-theme='light'] {
   background: #f5f5f5;
   color: #000;
 }
 
-.activity-log-container[data-theme='dark'] {
-  background: #fff; /* White background in dark mode */
-  color: #000; /* Black text */
+.ant-layout-sider-dark .activity-log-pre {
+  background: #2a2a2a;
+  color: #f0f0f0;
 }
 
