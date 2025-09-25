@@ -85,6 +85,18 @@ export const importFile = async (formData) => {
     }
 };
 
+export const uploadImage = async (formData) => {
+    const response = await fetch(`${API_URL}/images`, {
+        method: 'POST',
+        body: formData,
+    });
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+    }
+    return response.json();
+};
+
 export const fetchTrash = async () => {
     const response = await fetch(`${API_URL}/trash`);
     if (!response.ok) {

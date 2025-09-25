@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Button, Typography, Spin, notification } from 'antd';
-import MDEditor from '@uiw/react-md-editor';
+import { PictureOutlined } from '@ant-design/icons';
+import MDEditor, { commands } from '@uiw/react-md-editor';
+import * as api from '../api';
 
 import TableOfContents from './TableOfContents';
 import TrashView from './TrashView';
@@ -8,6 +10,39 @@ import SettingsView from './SettingsView';
 
 
 const { Title } = Typography;
+
+// Custom command for image upload
+const imageUploadCommand = {
+    name: 'image-upload',
+    keyCommand: 'imageUpload',
+    buttonProps: { 'aria-label': 'Insert image' },
+    icon: <PictureOutlined style={{ fontSize: '16px' }} />,
+    execute: (state, executeApi) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = async (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('image', file);
+                try {
+                    const res = await api.uploadImage(formData);
+                    const { url } = res;
+                    // Insert the image markdown
+                    const modifyText = `![${file.name}](${url})\n`;
+                    executeApi.replaceSelection(modifyText);
+                } catch (error) {
+                    notification.error({
+                        message: "Image upload failed",
+                        description: error.message,
+                    });
+                }
+            }
+        };
+        input.click();
+    },
+};
 
 const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
     const [isEditing, setIsEditing] = useState(false);
@@ -162,6 +197,11 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                                     onChange={(value) => setMarkdown(value || '')}
                                     height="100%"
                                     style={{ borderRadius: '6px' }}
+                                    commands={[
+                                        ...commands.getCommands(),
+                                        commands.divider,
+                                        imageUploadCommand
+                                    ]}
                                 />
                             ) : (
                                 <div ref={editorWrapperRef} className="wmde-markdown" style={{ height: '100%', overflowY: 'auto', padding: '2rem', borderRadius: '6px' }}>
