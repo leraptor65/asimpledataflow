@@ -97,6 +97,21 @@ export const uploadImage = async (formData) => {
     return response.json();
 };
 
+export const listImages = async () => {
+    const response = await fetch(`${API_URL}/images/list`);
+    if (!response.ok) {
+        throw new Error('Could not fetch images');
+    }
+    return response.json();
+}
+
+export const deleteImage = async (filename) => {
+    const response = await fetch(`${API_URL}/images/delete/${filename}`, { method: 'DELETE' });
+    if (!response.ok) {
+        throw new Error('Could not delete image');
+    }
+}
+
 export const fetchTrash = async () => {
     const response = await fetch(`${API_URL}/trash`);
     if (!response.ok) {
@@ -108,7 +123,8 @@ export const fetchTrash = async () => {
 export const restoreItemFromTrash = async (id) => {
     const response = await fetch(`${API_URL}/trash/restore/${id}`, { method: 'PUT' });
     if (!response.ok) {
-        throw new Error('Could not restore item');
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
     }
 }
 
@@ -119,19 +135,15 @@ export const deleteItemPermanently = async (id) => {
     }
 }
 
+export const emptyTrash = async () => {
+    const response = await fetch(`${API_URL}/trash/empty`, { method: 'DELETE' });
+    if (!response.ok) {
+        throw new Error('Could not empty recycle bin');
+    }
+}
+
 export const resolveNameConflicts = async () => {
     const response = await fetch(`${API_URL}/settings/resolve-conflicts`, {
-        method: 'POST',
-    });
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-    }
-    return response.json();
-};
-
-export const fixMarkdownFiles = async () => {
-    const response = await fetch(`${API_URL}/settings/fix-markdown`, {
         method: 'POST',
     });
     if (!response.ok) {

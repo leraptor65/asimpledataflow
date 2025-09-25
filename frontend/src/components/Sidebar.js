@@ -64,13 +64,13 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
             key: 'trash',
             icon: <TrashIcon />,
             label: isSidebarCollapsed ? null : 'Recycle Bin',
-            onClick: getTrash,
+            onClick: () => { getTrash(); setSelectedDoc(null); },
         },
         {
             key: 'settings',
             icon: <SettingOutlined />,
             label: isSidebarCollapsed ? null : 'Settings',
-            onClick: () => setView('settings'),
+            onClick: () => { setView('settings'); setSelectedDoc(null); },
         },
     ];
 

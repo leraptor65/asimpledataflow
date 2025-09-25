@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -37,12 +36,6 @@ type FileSystemItem struct {
 type RenameOperation struct {
 	OldPath string `json:"oldPath"`
 	NewPath string `json:"newPath"`
-}
-
-// MarkdownFixOperation records a file that was fixed.
-type MarkdownFixOperation struct {
-	Path   string `json:"path"`
-	Reason string `json:"reason"`
 }
 
 func logActivity(message string) {
@@ -209,14 +202,17 @@ func main() {
 	api.HandleFunc("/folders/{id:.*}", createFolder).Methods("POST")
 	api.HandleFunc("/export/{id:.*}", exportHandler).Methods("GET")
 	api.HandleFunc("/import", importHandler).Methods("POST")
+
 	api.HandleFunc("/images", uploadImageHandler).Methods("POST")
+	api.HandleFunc("/images/list", listImagesHandler).Methods("GET")
+	api.HandleFunc("/images/delete/{filename:.*}", deleteImageHandler).Methods("DELETE")
 
 	api.HandleFunc("/trash", listTrashItems).Methods("GET")
 	api.HandleFunc("/trash/restore/{id:.*}", restoreItemFromTrash).Methods("PUT")
 	api.HandleFunc("/trash/delete/{id:.*}", deleteItemPermanently).Methods("DELETE")
+	api.HandleFunc("/trash/empty", emptyTrashHandler).Methods("DELETE")
 
 	api.HandleFunc("/settings/resolve-conflicts", resolveConflictsHandler).Methods("POST")
-	api.HandleFunc("/settings/fix-markdown", fixMarkdownFilesHandler).Methods("POST")
 	api.HandleFunc("/logs", getLogsHandler).Methods("GET")
 	api.HandleFunc("/logs", clearLogsHandler).Methods("DELETE")
 
@@ -233,122 +229,6 @@ func resolveConflictsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to resolve name conflicts", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(operations); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-	}
-}
-
-func fixMarkdownFilesHandler(w http.ResponseWriter, r *http.Request) {
-	var operations []MarkdownFixOperation
-	// Regex for lines containing malformed image links like ![](path " =widthxheight")
-	imgRegex := regexp.MustCompile(`(?m)^.*!\[.*?\]\(.*?\s+" =.*?"\).*$`)
-	// Regex for lines that only contain '***' which might be intended as a horizontal rule
-	hrRegex := regexp.MustCompile(`(?m)^\s*\*\*\*\s*$`)
-	// Regex for lines that start with an escaped list item like `\*`
-	escapedListRegex := regexp.MustCompile(`(?m)^\s*\\\*.*$`)
-	// Regex for problematic line breaks `  \`
-	lineBreakRegex := regexp.MustCompile(`(?m)^\s*\\\s*$`)
-	// Regex for code blocks without a language identifier
-	untypedCodeBlockRegex := regexp.MustCompile("(?m)^```[\\s]*$\\n[\\s\\S]*?^```[\\s]*$")
-
-	err := filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
-			content, readErr := os.ReadFile(path)
-			if readErr != nil {
-				log.Printf("Error reading file %s: %v", path, readErr)
-				return nil // Skip this file
-			}
-
-			originalContent := string(content)
-			newContent := originalContent
-			fixed := false
-			var reasons []string
-
-			// Function to wrap matches in a comment
-			commentOut := func(match string, issue string) string {
-				return fmt.Sprintf("<!-- RENDER-FIX: The following block was commented out due to a potential %s error. Please review. Original content: \n%s\n-->", issue, match)
-			}
-
-			// Find and comment out malformed image links
-			if imgRegex.MatchString(newContent) {
-				newContent = imgRegex.ReplaceAllStringFunc(newContent, func(match string) string {
-					reasons = append(reasons, "Commented out line with invalid image link syntax.")
-					return commentOut(match, "image link")
-				})
-				fixed = true
-			}
-
-			// Find and comment out '***' horizontal rules
-			if hrRegex.MatchString(newContent) {
-				newContent = hrRegex.ReplaceAllStringFunc(newContent, func(match string) string {
-					reasons = append(reasons, "Commented out line with non-standard horizontal rule.")
-					return commentOut(match, "horizontal rule")
-				})
-				fixed = true
-			}
-
-			// Find and comment out escaped list items
-			if escapedListRegex.MatchString(newContent) {
-				newContent = escapedListRegex.ReplaceAllStringFunc(newContent, func(match string) string {
-					reasons = append(reasons, "Commented out line with escaped list item.")
-					return commentOut(match, "list format")
-				})
-				fixed = true
-			}
-
-			// Find and comment out problematic line breaks
-			if lineBreakRegex.MatchString(newContent) {
-				newContent = lineBreakRegex.ReplaceAllStringFunc(newContent, func(match string) string {
-					reasons = append(reasons, "Commented out line with problematic line break.")
-					return commentOut(match, "line break")
-				})
-				fixed = true
-			}
-
-			// Find and comment out untyped code blocks
-			if untypedCodeBlockRegex.MatchString(newContent) {
-				newContent = untypedCodeBlockRegex.ReplaceAllStringFunc(newContent, func(match string) string {
-					reasons = append(reasons, "Commented out code block with missing language identifier.")
-					return commentOut(match, "code block format")
-				})
-				fixed = true
-			}
-
-			if fixed {
-				// To avoid duplicate reasons
-				uniqueReasons := make(map[string]bool)
-				for _, r := range reasons {
-					uniqueReasons[r] = true
-				}
-				var reasonSlice []string
-				for r := range uniqueReasons {
-					reasonSlice = append(reasonSlice, r)
-				}
-				reasonStr := strings.Join(reasonSlice, " ")
-
-				relPath, _ := filepath.Rel(dataDir, path)
-				if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
-					log.Printf("Error writing fixed markdown to %s: %v", path, err)
-				} else {
-					operations = append(operations, MarkdownFixOperation{Path: relPath, Reason: reasonStr})
-					logActivity(fmt.Sprintf("MARKDOWN FIX: Applied fixes to '%s': %s", relPath, reasonStr))
-				}
-			}
-		}
-		return nil
-	})
-
-	if err != nil {
-		log.Printf("Error walking directory for markdown fixes: %v", err)
-		http.Error(w, "Failed to fix markdown files", http.StatusInternalServerError)
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(operations); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
@@ -382,7 +262,6 @@ func clearLogsHandler(w http.ResponseWriter, r *http.Request) {
 	logActivity("LOGS: Activity log cleared.")
 	w.WriteHeader(http.StatusOK)
 }
-
 
 // uploadImageHandler handles image uploads for the markdown editor.
 func uploadImageHandler(w http.ResponseWriter, r *http.Request) {
@@ -419,6 +298,49 @@ func uploadImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func listImagesHandler(w http.ResponseWriter, r *http.Request) {
+	var imageFiles []string
+	files, err := os.ReadDir(imagesDir)
+	if err != nil {
+		http.Error(w, "Failed to read images directory", http.StatusInternalServerError)
+		return
+	}
+	for _, file := range files {
+		if !file.IsDir() {
+			imageFiles = append(imageFiles, file.Name())
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(imageFiles)
+}
+
+func deleteImageHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	filename := vars["filename"]
+
+	// Basic security check to prevent path traversal
+	if strings.Contains(filename, "..") {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	imagePath := filepath.Join(imagesDir, filename)
+
+	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
+		http.Error(w, "Image not found", http.StatusNotFound)
+		return
+	}
+
+	err := os.Remove(imagePath)
+	if err != nil {
+		http.Error(w, "Failed to delete image", http.StatusInternalServerError)
+		return
+	}
+
+	logActivity(fmt.Sprintf("IMAGE MGMT: Deleted image '%s'", filename))
+	w.WriteHeader(http.StatusOK)
 }
 
 func buildTree(basePath string) (FileSystemItem, error) {
@@ -1028,5 +950,18 @@ func deleteItemPermanently(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func emptyTrashHandler(w http.ResponseWriter, r *http.Request) {
+	dir, err := os.ReadDir(trashDir)
+	if err != nil {
+		http.Error(w, "Could not read trash directory", http.StatusInternalServerError)
+		return
+	}
+	for _, d := range dir {
+		os.RemoveAll(filepath.Join(trashDir, d.Name()))
+	}
+	logActivity("TRASH: Emptied the recycle bin.")
 	w.WriteHeader(http.StatusOK)
 }

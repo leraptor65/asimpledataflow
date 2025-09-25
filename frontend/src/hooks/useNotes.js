@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { notification } from 'antd';
+import { message, Modal } from 'antd';
 import * as api from '../api';
 
 const useNotes = () => {
@@ -13,11 +13,10 @@ const useNotes = () => {
     const [selectedFolder, setSelectedFolder] = useState(null);
     const [trashedItems, setTrashedItems] = useState([]);
     const [fileContent, setFileContent] = useState(null);
+    const [images, setImages] = useState([]);
 
     const [conflictResults, setConflictResults] = useState(null);
-    const [markdownFixResults, setMarkdownFixResults] = useState(null);
     const [activityLogs, setActivityLogs] = useState('');
-    const [isFixingMarkdown, setIsFixingMarkdown] = useState(false);
 
 
     const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
@@ -44,12 +43,50 @@ const useNotes = () => {
             const data = await api.fetchDocuments();
             setDocuments(data);
         } catch (e) {
-            notification.error({
-                message: "Error fetching documents",
-                description: e.message,
-            });
+            message.error(e.message);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const navigateToPath = (path) => {
+        if (path === '') {
+            setView('welcome');
+            setSelectedDoc(null);
+            setSelectedFolder(null);
+            window.history.pushState(null, '', '/');
+            return;
+        }
+    
+        // A helper function to find an item (file or folder) in the documents tree
+        const findItem = (items, targetPath) => {
+            for (const item of items) {
+                if (item.path === targetPath) {
+                    return item;
+                }
+                if (item.children) {
+                    const found = findItem(item.children, targetPath);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+    
+        const item = findItem(documents, path);
+    
+        if (item) {
+            if (item.type === 'folder') {
+                setSelectedFolder(item);
+                setView('folder');
+                setSelectedDoc(null);
+                window.history.pushState({ id: path }, '', `/${path}`);
+            } else {
+                fetchDocContent(path, true);
+            }
+        } else {
+            // If not found, it might be a file path that lost its extension in the tree data.
+            // fetchDocContent is robust enough to try adding extensions.
+            fetchDocContent(path, true);
         }
     };
 
@@ -58,24 +95,45 @@ const useNotes = () => {
             const logs = await api.fetchLogs();
             setActivityLogs(logs);
         } catch (e) {
-            notification.error({
-                message: "Error fetching logs",
-                description: e.message,
-            });
+            message.error(e.message);
         }
     };
 
     const handleClearLogs = async () => {
         try {
             await api.clearLogs();
-            notification.success({ message: "Activity log cleared." });
+            message.success("Activity log cleared.");
             fetchLogs(); // Refresh logs to show it's empty
         } catch(e) {
-            notification.error({
-                message: "Error clearing logs",
-                description: e.message,
-            });
+            message.error(e.message);
         }
+    };
+
+    const fetchImages = async () => {
+        try {
+            const imageList = await api.listImages();
+            setImages(imageList);
+        } catch (e) {
+            message.error(e.message);
+        }
+    };
+
+    const handleDeleteImage = (filename) => {
+        Modal.confirm({
+            title: 'Delete Image?',
+            content: `Are you sure you want to permanently delete "${filename}"? This action cannot be undone.`,
+            okText: 'Delete',
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                try {
+                    await api.deleteImage(filename);
+                    message.success(`Image "${filename}" deleted.`);
+                    fetchImages();
+                } catch (e) {
+                    message.error(e.message);
+                }
+            },
+        });
     };
 
     useEffect(() => {
@@ -114,10 +172,7 @@ const useNotes = () => {
                 setView('text');
             }
         } catch (e) {
-            notification.error({
-                message: "Error fetching content",
-                description: e.message,
-            });
+            message.error(e.message);
         } finally {
             setIsLoading(false);
         }
@@ -127,21 +182,16 @@ const useNotes = () => {
         if (!selectedDoc) return;
         try {
             await api.saveDocument(selectedDoc, markdown); // markdown state is updated by Lexical's OnChangePlugin
-            notification.success({
-                message: "Document saved.",
-            });
+            message.success("Document saved.");
             fetchDocs();
         } catch (e) {
-            notification.error({
-                message: "Error saving document",
-                description: e.message,
-            });
+            message.error(e.message);
         }
     };
 
     const createNote = async () => {
         if (!newNoteName) {
-            notification.warning({ message: "Note name cannot be empty." });
+            message.warning("Note name cannot be empty.");
             return;
         }
         const finalPath = currentFolder ? `${currentFolder}/${newNoteName}` : newNoteName;
@@ -151,14 +201,9 @@ const useNotes = () => {
             setIsNewNoteModalVisible(false);
             fetchDocs();
             fetchDocContent(finalPath);
-            notification.success({
-                message: "Note created.",
-            });
+            message.success("Note created.");
         } catch (e) {
-            notification.error({
-                message: "Error creating note",
-                description: e.message,
-            });
+            message.error(e.message);
         }
     };
 
@@ -174,9 +219,9 @@ const useNotes = () => {
             await api.renameItem(itemToRename.path, newPath);
             setIsRenameModalVisible(false);
             fetchDocs();
-            notification.success({ message: `${itemToRename.name} renamed.` });
+            message.success(`${itemToRename.name} renamed.`);
         } catch (e) {
-            notification.error({ message: "Error renaming item", description: e.message });
+            message.error(e.message);
         }
     };
 
@@ -190,15 +235,15 @@ const useNotes = () => {
                 setView('welcome');
                 setSelectedDoc(null);
             }
-            notification.success({ message: `${itemToDelete.name} moved to recycle bin.` });
+            message.success(`${itemToDelete.name} moved to recycle bin.`);
         } catch (e) {
-            notification.error({ message: "Error deleting item", description: e.message });
+            message.error(e.message);
         }
     };
 
     const createFolder = async () => {
         if (!newFolderName) {
-            notification.warning({ message: "Folder name cannot be empty." });
+            message.warning("Folder name cannot be empty.");
             return;
         }
         const fullPath = folderToCreateIn ? `${folderToCreateIn}/${newFolderName}` : newFolderName;
@@ -206,9 +251,9 @@ const useNotes = () => {
             await api.createFolder(fullPath);
             setIsNewFolderModalVisible(false);
             fetchDocs();
-            notification.success({ message: "Folder created." });
+            message.success("Folder created.");
         } catch (e) {
-            notification.error({ message: "Error creating folder", description: e.message });
+            message.error(e.message);
         }
     };
 
@@ -219,9 +264,7 @@ const useNotes = () => {
         const currentDirectory = itemToMove.path.substring(0, itemToMove.path.lastIndexOf('/'));
 
         if (destinationPath === currentDirectory) {
-            notification.error({
-                message: "Cannot move item to its current location.",
-            });
+            message.error("Cannot move item to its current location.");
             setIsMoveModalVisible(false);
             return;
         }
@@ -232,14 +275,9 @@ const useNotes = () => {
             await api.renameItem(itemToMove.path, newPath)
             setIsMoveModalVisible(false);
             fetchDocs();
-            notification.success({
-                message: `${itemToMove.name} moved.`,
-            });
+            message.success(`${itemToMove.name} moved.`);
         } catch (e) {
-            notification.error({
-                message: "Error moving item",
-                description: e.message,
-            });
+            message.error(e.message);
         }
     };
 
@@ -252,15 +290,10 @@ const useNotes = () => {
 
         try {
             await api.importFile(formData);
-            notification.success({
-                message: "Import successful.",
-            });
+            message.success("Import successful.");
             fetchDocs();
         } catch (e) {
-            notification.error({
-                message: "Import failed.",
-                description: e.message,
-            });
+            message.error(e.message);
         }
     };
 
@@ -280,10 +313,7 @@ const useNotes = () => {
             a.remove();
             window.URL.revokeObjectURL(url);
         } catch (e) {
-            notification.error({
-                message: "Error exporting documents",
-                description: e.message,
-            });
+            message.error(e.message);
         }
     };
 
@@ -293,29 +323,48 @@ const useNotes = () => {
             setTrashedItems(data || []);
             setView('trash');
         } catch (e) {
-            notification.error({ message: "Error", description: e.message });
+            message.error(e.message);
         }
     };
 
     const restoreItem = async (id) => {
         try {
             await api.restoreItemFromTrash(id);
-            notification.success({ message: "Item restored" });
+            message.success("Item restored");
             getTrash();
             fetchDocs();
         } catch (e) {
-            notification.error({ message: "Error", description: e.message });
+            message.error(e.message);
         }
     };
 
     const deletePermanently = async (id) => {
         try {
             await api.deleteItemPermanently(id);
-            notification.success({ message: "Item permanently deleted" });
+            message.success("Item permanently deleted");
             getTrash();
         } catch (e) {
-            notification.error({ message: "Error", description: e.message });
+            message.error(e.message);
         }
+    };
+
+    const handleEmptyTrash = () => {
+        Modal.confirm({
+            title: 'Empty Recycle Bin?',
+            content: 'Are you sure you want to permanently delete all items in the recycle bin? This action cannot be undone.',
+            okText: 'Empty',
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                try {
+                    await api.emptyTrash();
+                    message.success('Recycle bin emptied.');
+                    setTrashedItems([]);
+                    fetchLogs();
+                } catch (e) {
+                    message.error(e.message);
+                }
+            },
+        });
     };
 
     const handleResolveConflicts = async () => {
@@ -325,55 +374,16 @@ const useNotes = () => {
             const operations = await api.resolveNameConflicts();
             setConflictResults(operations || []);
             if (operations && operations.length > 0) {
-                notification.success({
-                    message: "Data integrity check complete",
-                    description: "Naming conflicts have been resolved.",
-                    duration: 5,
-                });
+                message.success("Naming conflicts have been resolved.", 5);
             } else {
-                notification.success({
-                    message: "Data integrity check complete",
-                    description: "No naming conflicts found.",
-                });
+                message.success("No naming conflicts found.");
             }
             fetchDocs();
             fetchLogs();
         } catch (e) {
-            notification.error({
-                message: "Error checking data integrity",
-                description: e.message,
-            });
+            message.error(e.message);
         } finally {
             setIsResolving(false);
-        }
-    };
-
-    const handleFixMarkdownFiles = async () => {
-        setIsFixingMarkdown(true);
-        setMarkdownFixResults(null);
-        try {
-            const operations = await api.fixMarkdownFiles();
-            setMarkdownFixResults(operations || []);
-            if (operations && operations.length > 0) {
-                notification.success({
-                    message: "Markdown fix complete",
-                    description: `${operations.length} file(s) were updated.`,
-                    duration: 5,
-                });
-            } else {
-                notification.success({
-                    message: "Markdown fix complete",
-                    description: "No files needed fixing.",
-                });
-            }
-            fetchLogs(); // Refresh logs to show new changes
-        } catch (e) {
-            notification.error({
-                message: "Error fixing markdown files",
-                description: e.message,
-            });
-        } finally {
-            setIsFixingMarkdown(false);
         }
     };
 
@@ -420,6 +430,7 @@ const useNotes = () => {
         setSelectedFolder,
         trashedItems,
         fileContent,
+        images,
         isRenameModalVisible,
         setIsRenameModalVisible,
         isDeleteModalVisible,
@@ -461,16 +472,16 @@ const useNotes = () => {
         getTrash,
         restoreItem,
         deletePermanently,
+        handleEmptyTrash,
         handleResolveConflicts,
         conflictResults,
         setConflictResults,
-        handleFixMarkdownFiles,
-        isFixingMarkdown,
-        markdownFixResults,
-        setMarkdownFixResults,
         activityLogs,
         fetchLogs,
         handleClearLogs,
+        fetchImages,
+        handleDeleteImage,
+        navigateToPath,
     };
 };
 

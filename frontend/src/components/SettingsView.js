@@ -1,9 +1,8 @@
 import React, { useEffect } from 'react';
-import { Button, Card, Switch, Typography, List, Empty, Collapse, Space } from 'antd';
+import { Button, Card, Switch, Typography, List, Empty, Space, Image, Tooltip } from 'antd';
 import { SyncOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
-const { Panel } = Collapse;
 
 const SettingsView = ({
     onImport,
@@ -15,13 +14,12 @@ const SettingsView = ({
     isResolving,
     conflictResults,
     setConflictResults,
-    onFixMarkdown,
-    isFixingMarkdown,
-    markdownFixResults,
-    setMarkdownFixResults,
     activityLogs,
     fetchLogs,
-    onClearLogs
+    onClearLogs,
+    images,
+    fetchImages,
+    onDeleteImage,
 }) => {
     const handleImportClick = () => {
         if (fileInputRef.current) {
@@ -30,14 +28,12 @@ const SettingsView = ({
     };
 
     useEffect(() => {
-        // Fetch logs when the component mounts
         fetchLogs();
-        // Clear results when component unmounts
+        fetchImages();
         return () => {
             setConflictResults(null);
-            setMarkdownFixResults(null);
         };
-    }, [fetchLogs, setConflictResults, setMarkdownFixResults]);
+    }, [fetchLogs, fetchImages, setConflictResults]);
 
     return (
         <div>
@@ -77,87 +73,92 @@ const SettingsView = ({
                         </div>
                     )}
                 </Card>
-                <Card title="Markdown Cleanup">
-                    <Paragraph>
-                        Scans all `.md` files for common formatting errors, like broken image links or improper horizontal rules, and fixes them automatically.
-                    </Paragraph>
-                    <Button onClick={onFixMarkdown} loading={isFixingMarkdown}>
-                        Scan and Fix Markdown
+                <Card title="Import">
+                    <Paragraph>Import notes from a .md or .zip file.</Paragraph>
+                    <input type="file" ref={fileInputRef} onChange={onImport} style={{ display: 'none' }} />
+                    <Button type="primary" onClick={handleImportClick}>
+                        Import
                     </Button>
-                    {markdownFixResults && (
-                        <div style={{ marginTop: '1rem' }}>
-                            {markdownFixResults.length > 0 ? (
-                                <List
-                                    header={<Text strong>Fixed Files:</Text>}
-                                    bordered
-                                    dataSource={markdownFixResults}
-                                    renderItem={item => (
-                                        <List.Item>
-                                            <Text strong>{item.path}</Text>
-                                        </List.Item>
-                                    )}
-                                />
+                </Card>
+                <Card title="Export">
+                    <Paragraph>Export all notes as a .zip file.</Paragraph>
+                    <Button onClick={onExportAll}>
+                        Export All
+                    </Button>
+                </Card>
+                <Card
+                    title="Image Management"
+                    extra={
+                        <Button
+                            icon={<SyncOutlined />}
+                            onClick={(e) => { e.stopPropagation(); fetchImages(); }}
+                        >
+                            Refresh
+                        </Button>
+                    }
+                >
+                    <Image.PreviewGroup>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '1rem', maxHeight: '300px', overflowY: 'auto' }}>
+                            {images.length > 0 ? (
+                                images.map(image => (
+                                    <Card
+                                        key={image}
+                                        hoverable
+                                        cover={<Image alt={image} src={`/images/${image}`} style={{ height: 100, objectFit: 'cover' }} />}
+                                        bodyStyle={{ padding: '8px', textAlign: 'center' }}
+                                    >
+                                        <Card.Meta
+                                            description={
+                                                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                                                    <Text style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{image}</Text>
+                                                    <Tooltip title="Delete">
+                                                        <Button
+                                                            icon={<DeleteOutlined />}
+                                                            danger
+                                                            size="small"
+                                                            onClick={() => onDeleteImage(image)}
+                                                            style={{ marginLeft: 8 }}
+                                                        />
+                                                    </Tooltip>
+                                                </div>
+                                            }
+                                        />
+                                    </Card>
+                                ))
                             ) : (
-                                <Empty description="No markdown errors found." />
+                                <Empty description="No images found." style={{ gridColumn: '1 / -1' }} />
                             )}
                         </div>
-                    )}
+                    </Image.PreviewGroup>
                 </Card>
-                <Card title="Import & Export">
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                        <div>
-                            <Text>Import notes from a .md or .zip file.</Text>
-                            <input type="file" ref={fileInputRef} onChange={onImport} style={{ display: 'none' }} />
-                            <Button type="primary" onClick={handleImportClick} style={{ display: 'block', marginTop: '8px' }}>
-                                Import
+                <Card
+                    title="Activity Log"
+                    extra={
+                        <Space>
+                            <Button
+                                icon={<SyncOutlined />}
+                                onClick={(e) => { e.stopPropagation(); fetchLogs(); }}
+                            >
+                                Refresh
                             </Button>
-                        </div>
-                        <div>
-                            <Text>Export all notes as a .zip file.</Text>
-                            <Button onClick={onExportAll} style={{ display: 'block', marginTop: '8px' }}>
-                                Export All
+                            <Button
+                                icon={<DeleteOutlined />}
+                                danger
+                                onClick={(e) => { e.stopPropagation(); onClearLogs(); }}
+                            >
+                                Clear
                             </Button>
-                        </div>
-                    </Space>
+                        </Space>
+                    }
+                >
+                    <pre className="activity-log-pre">
+                        {activityLogs || "No activity yet."}
+                    </pre>
                 </Card>
-                <Collapse>
-                    <Panel
-                        header="Activity Log"
-                        key="1"
-                        extra={
-                            <Space>
-                                <Button
-                                    icon={<SyncOutlined />}
-                                    size="small"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        fetchLogs();
-                                    }}
-                                >
-                                    Refresh
-                                </Button>
-                                <Button
-                                    icon={<DeleteOutlined />}
-                                    size="small"
-                                    danger
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onClearLogs();
-                                    }}
-                                >
-                                    Clear
-                                </Button>
-                            </Space>
-                        }
-                    >
-                        <pre className="activity-log-pre">
-                            {activityLogs || "No activity yet."}
-                        </pre>
-                    </Panel>
-                </Collapse>
             </div>
         </div>
     );
 };
 
 export default SettingsView;
+

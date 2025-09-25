@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Button, Typography, Spin, notification } from 'antd';
+import { Button, Typography, Spin, message, Breadcrumb } from 'antd';
 import { PictureOutlined } from '@ant-design/icons';
 import MDEditor, { commands } from '@uiw/react-md-editor';
 import * as api from '../api';
@@ -33,10 +33,7 @@ const imageUploadCommand = {
                     const modifyText = `![${file.name}](${url})\n`;
                     executeApi.replaceSelection(modifyText);
                 } catch (error) {
-                    notification.error({
-                        message: "Image upload failed",
-                        description: error.message,
-                    });
+                    message.error(error.message);
                 }
             }
         };
@@ -60,6 +57,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
         trashedItems,
         restoreItem,
         deletePermanently,
+        handleEmptyTrash,
         importFile,
         exportAll,
         fileInputRef,
@@ -68,13 +66,13 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
         isResolving,
         conflictResults,
         setConflictResults,
-        handleFixMarkdownFiles,
-        isFixingMarkdown,
-        markdownFixResults,
-        setMarkdownFixResults,
         activityLogs,
         fetchLogs,
         handleClearLogs,
+        images,
+        fetchImages,
+        handleDeleteImage,
+        navigateToPath
     } = notes;
 
     const editorWrapperRef = useRef(null);
@@ -125,9 +123,9 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                 button.onclick = (e) => {
                     e.stopPropagation();
                     navigator.clipboard.writeText(code).then(() => {
-                        notification.success({ message: 'Copied!', duration: 2, placement: 'topRight' });
+                        message.success('Copied!');
                     }).catch(() => {
-                        notification.error({ message: 'Failed to copy.', duration: 2, placement: 'topRight' });
+                        message.error('Failed to copy.');
                     });
                 };
                 
@@ -169,6 +167,37 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
         setIsEditing(!isEditing);
     }
 
+    const renderBreadcrumbTitle = (path) => {
+        const pathParts = path ? path.split('/') : [];
+        let accumulatedPath = '';
+        const breadcrumbItems = pathParts.map((part, index) => {
+            const isLast = index === pathParts.length - 1;
+            accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
+            const linkPath = accumulatedPath;
+
+            if (isLast) {
+                return <Breadcrumb.Item key={linkPath}>{part}</Breadcrumb.Item>;
+            }
+
+            return (
+                <Breadcrumb.Item key={linkPath}>
+                    <a onClick={() => navigateToPath(linkPath)}>{part}</a>
+                </Breadcrumb.Item>
+            );
+        });
+
+        return (
+             <Title level={2} style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <Breadcrumb separator=">">
+                    <Breadcrumb.Item>
+                        <a onClick={() => navigateToPath('')}>Home</a>
+                    </Breadcrumb.Item>
+                    {breadcrumbItems}
+                </Breadcrumb>
+            </Title>
+        );
+    };
+
     const renderMainContent = () => {
         if (isLoading) {
             return (
@@ -183,9 +212,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                 return (
                     <div data-color-mode={isDarkMode ? 'dark' : 'light'} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, paddingBottom: '1rem' }}>
-                            <Title level={2} style={{ margin: 0 }}>
-                                {selectedDoc}
-                            </Title>
+                            {renderBreadcrumbTitle(selectedDoc)}
                             <Button type="primary" onClick={handleEditSave}>
                                 {isEditing ? 'Save' : 'Edit'}
                             </Button>
@@ -216,10 +243,8 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
             case 'image':
                 return (
                     <>
-                        <Title level={2} style={{ marginBottom: '1rem' }}>
-                            {selectedDoc}
-                        </Title>
-                        <div style={{ flex: 1, textAlign: 'center' }}>
+                        {renderBreadcrumbTitle(selectedDoc)}
+                        <div style={{ flex: 1, textAlign: 'center', marginTop: '1rem' }}>
                             <img src={fileContent} alt={selectedDoc} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
                         </div>
                     </>
@@ -227,16 +252,15 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
             case 'text':
                 return (
                     <>
-                        <Title level={2} style={{ marginBottom: '1rem' }}>
-                            {selectedDoc}
-                        </Title>
-                        <pre style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word', flex: 1 }}>
+                        {renderBreadcrumbTitle(selectedDoc)}
+                        <pre style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word', flex: 1, marginTop: '1rem' }}>
                             {fileContent}
                         </pre>
                     </>
                 );
             case 'folder':
                 return <TableOfContents
+                    notes={notes}
                     title={selectedFolder.path}
                     items={selectedFolder.children}
                     onSelect={(item) => {
@@ -248,7 +272,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                         }
                     }} />;
             case 'trash':
-                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} />;
+                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmptyTrash={handleEmptyTrash} />;
             case 'settings':
                 return <SettingsView
                     onImport={importFile}
@@ -260,17 +284,17 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                     isResolving={isResolving}
                     conflictResults={conflictResults}
                     setConflictResults={setConflictResults}
-                    onFixMarkdown={handleFixMarkdownFiles}
-                    isFixingMarkdown={isFixingMarkdown}
-                    markdownFixResults={markdownFixResults}
-                    setMarkdownFixResults={setMarkdownFixResults}
                     activityLogs={activityLogs}
                     fetchLogs={fetchLogs}
                     onClearLogs={handleClearLogs}
+                    images={images}
+                    fetchImages={fetchImages}
+                    onDeleteImage={handleDeleteImage}
                 />;
             case 'welcome':
             default:
                 return <TableOfContents
+                    notes={notes}
                     title="Home"
                     items={notes.documents}
                     onSelect={(item) => {
