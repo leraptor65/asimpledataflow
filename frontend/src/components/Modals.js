@@ -107,7 +107,7 @@ export const Modals = ({ notes }) => {
                     <Form.Item label="Select a destination folder">
                         <Tree
                             treeData={[
-                                { title: 'Root', key: '', icon: <FolderOutlined /> },
+                                { title: 'Home', key: '', icon: <FolderOutlined /> },
                                 ...buildFolderTreeData(documents)
                             ]}
                             onSelect={(selectedKeys) => {

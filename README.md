@@ -4,29 +4,33 @@ A simple, self-hosted, and containerized markdown viewer, editor, and organizer.
 
 ## Core Principles
 
-  * **Data Portability**: All your documents are stored as plain markdown files on a local volume. This means you own your data completely and can access, back up, and migrate your notes without vendor lock-in.
-  * **Simple & Focused**: The application is designed to do one thing well: manage your markdown files.
-  * **Easy to Host**: Thanks to Docker, deploying "A Simple Data Flow" is a single-command process.
+-   **Data Portability**: All your documents are stored as plain markdown files on a local volume. This means you own your data completely and can access, back up, and migrate your notes without vendor lock-in.
+-   **Simple & Focused**: The application is designed to do one thing well: manage your markdown files in a clean and intuitive interface.
+-   **Easy to Host**: Thanks to Docker, deploying "A Simple Data Flow" is a single-command process.
 
 ## Features
 
-  * **File-based storage**: Your notes are simple `.md` files in a folder structure.
-  * **Live Markdown Editor**: Create and edit documents with a live preview.
-  * **REST API**: A lightweight Go backend to manage files.
-  * **Dark Mode**: Switch between light and dark themes for your comfort.
-  * **File and Folder Search**: Quickly find the notes and folders you're looking for.
-  * **Import and Export**:
-      * Import notes from `.md` or `.zip` files.
-      * Export a single note, a folder as a `.zip` file, or all of your notes as a single `.zip` file.
-  * **Recycle Bin**:
-      * Move notes and folders to a recycle bin instead of permanently deleting them.
-      * Restore items from the recycle bin.
-      * Permanently delete items from the recycle bin.
-  * **Image Uploads**: Upload and embed images directly into your markdown notes.
-  * **File and Folder Management**:
-      * Create, rename, move, and delete files and folders.
-      * Use the context menu (right-click) for quick access to file and folder operations.
-  * **Expand and Collapse All Folders**: Easily navigate your folder structure.
+### Core Features
+
+-   **File-Based Storage**: Your notes are simple `.md` files in a folder structure you control.
+-   **Live Markdown Editor**: A powerful editor with live preview, a full toolbar, and direct image upload support.
+-   **File & Folder Management**: Easily create, rename, move, and delete files and folders through an intuitive, collapsible sidebar.
+-   **Search**: Quickly find any note or folder with a responsive search bar.
+-   **Navigation**: Clickable breadcrumbs in the main view allow for easy navigation through your folder hierarchy.
+
+### Data Management
+
+-   **Import**: Import single `.md` files or `.zip` archives of your notes.
+-   **Export**: Export individual notes, entire folders, or your complete collection as a single `.zip` file.
+-   **Recycle Bin**: Safely delete items and restore them later, or choose to delete them permanently. You can also empty the entire bin with a single click.
+-   **Data Integrity Check**: Automatically scan for and resolve case-sensitive naming conflicts (e.g., `File.md` and `file.md` in the same folder) to prevent data loss.
+-   **Image Management**: View all uploaded images in the settings panel and delete those that are no longer needed to free up space.
+
+### User Experience
+
+-   **Dark Mode**: A sleek dark mode for comfortable viewing in low-light conditions.
+-   **Collapsible Sidebar**: Adjust your workspace by collapsing the sidebar for a more focused writing environment.
+-   **Activity Log**: Keep track of all major actions, such as file renames, data integrity fixes, and log clearing.
 
 ## Getting Started
 
@@ -34,7 +38,7 @@ The easiest way to run "A Simple Data Flow" is with Docker Compose.
 
 **Prerequisites:**
 
-  * [Docker](https://www.docker.com/get-started) and [Docker Compose](https://docs.docker.com/compose/install/) installed on your system.
+-   [Docker](https://www.docker.com/get-started) and [Docker Compose](https://docs.docker.com/compose/install/) installed on your system.
 
 **Instructions:**
 
@@ -81,6 +85,13 @@ If you'd like to contribute, you can run the application in a development enviro
     ```
 3.  Access the app at `http://localhost:3000`.
 
+## Acknowledgements
+
+This project was built with the help of some fantastic open-source libraries:
+
+-   **[Ant Design](https://ant.design/)**: For the comprehensive and beautiful UI component library.
+-   **[@uiw/react-md-editor](https://uiwjs.github.io/react-md-editor/)**: For the excellent Markdown editor component.
+
 ## Contributing
 
-We welcome contributions\! Feel free to open issues or submit pull requests on the [GitHub repository](https://github.com/leraptor65/asimpledataflow).
+We welcome contributions! Feel free to open issues or submit pull requests on the [GitHub repository](https://github.com/leraptor65/asimpledataflow).
