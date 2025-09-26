@@ -1,57 +1,24 @@
 import React from 'react';
-import { Card, Empty, Space, Typography, Breadcrumb } from 'antd';
+import { Card, Empty, Space, Typography } from 'antd';
 import { FolderOutlined } from '@ant-design/icons';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
-const TableOfContents = ({ title, items, onSelect, notes }) => {
-    const { navigateToPath } = notes;
-
-    const renderBreadcrumbTitle = () => {
-        if (title === 'Home' || !title) {
-            return <Title level={2} style={{ marginBottom: '1rem' }}>Home</Title>
-        }
-        
-        const pathParts = title.split('/');
-
-        let accumulatedPath = '';
-        const breadcrumbItems = pathParts.map((part) => {
-            accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
-            const linkPath = accumulatedPath;
-
-            return (
-                <Breadcrumb.Item key={linkPath}>
-                    <a onClick={() => navigateToPath(linkPath)}>{part}</a>
-                </Breadcrumb.Item>
-            );
-        });
-
-        return (
-             <Title level={2} style={{ marginBottom: '1rem' }}>
-                <Breadcrumb separator=">">
-                    <Breadcrumb.Item>
-                        <a onClick={() => navigateToPath('')}>Home</a>
-                    </Breadcrumb.Item>
-                    {breadcrumbItems}
-                </Breadcrumb>
-            </Title>
-        );
-    };
-
-    if (!items || items.length === 0) {
+const TableOfContents = ({ folder, onSelect, renderBreadcrumbs }) => {
+    if (!folder || !folder.children || folder.children.length === 0) {
         return (
             <div>
-                {renderBreadcrumbTitle()}
-                <Empty description="This folder is empty." />
+                 {renderBreadcrumbs(folder.path)}
+                <Empty description="This folder is empty." style={{marginTop: '2rem'}}/>
             </div>
         );
     }
 
     return (
         <div>
-            {renderBreadcrumbTitle()}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
-                {items.map((item) => (
+            {renderBreadcrumbs(folder.path)}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                {folder.children.map((item) => (
                     <Card
                         key={item.path}
                         hoverable
@@ -69,3 +36,4 @@ const TableOfContents = ({ title, items, onSelect, notes }) => {
 };
 
 export default TableOfContents;
+

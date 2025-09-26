@@ -1,1 +1,114 @@
-/* All styles are now handled by Ant Design in App.js */
+/* All styles are now handled by Ant Design in App.js *//* General body styles */
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+      monospace;
+  }
+  
+  /* Styling for the file tree container to ensure proper scrolling */
+  .file-tree-container {
+      /* This ensures that the container itself does not shrink and allows the inner Tree to scroll */
+      flex-grow: 1;
+      overflow-y: auto; /* Fallback for browsers that don't support overlay */
+      overflow-y: overlay;
+      padding-left: 8px; /* Give some space from the sider edge */
+  }
+  
+  /* Custom scrollbar styling for a cleaner look in Webkit browsers */
+  .file-tree-container::-webkit-scrollbar {
+      width: 8px;
+  }
+  
+  .file-tree-container::-webkit-scrollbar-track {
+      background: transparent;
+  }
+  
+  .file-tree-container::-webkit-scrollbar-thumb {
+      background-color: rgba(128, 128, 128, 0.5);
+      border-radius: 4px;
+  }
+  
+  /* Hide scrollbar when not hovering */
+  .file-tree-container::-webkit-scrollbar-thumb {
+      background-color: transparent;
+  }
+  .file-tree-container:hover::-webkit-scrollbar-thumb {
+      background-color: rgba(128, 128, 128, 0.5);
+  }
+
+/* Activity Log styles */
+.activity-log-pre {
+    background-color: #f5f5f5;
+    border: 1px solid #e8e8e8;
+    border-radius: 4px;
+    padding: 16px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Dark mode styles for activity log */
+[data-theme="dark"] .activity-log-pre {
+    background-color: #1f1f1f;
+    border-color: #303030;
+    color: #fff;
+}
+
+/* Code Block wrapper styles for copy button */
+.code-block-wrapper {
+    position: relative;
+    margin-bottom: 1rem;
+}
+
+.code-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #f0f0f0;
+    padding: 4px 8px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+[data-color-mode="dark"] .code-block-header {
+    background-color: #333;
+}
+
+.code-block-lang {
+    font-size: 0.8em;
+    color: #555;
+    font-family: monospace;
+}
+
+[data-color-mode="dark"] .code-block-lang {
+    color: #aaa;
+}
+
+.code-block-copy-btn {
+    background-color: #e0e0e0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8em;
+}
+
+[data-color-mode="dark"] .code-block-copy-btn {
+    background-color: #444;
+    border-color: #555;
+    color: #eee;
+}
+
+.code-block-wrapper pre {
+    margin-top: 0 !important;
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+}

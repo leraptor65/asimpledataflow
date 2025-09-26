@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Button, Typography, Spin, message, Breadcrumb } from 'antd';
-import { PictureOutlined } from '@ant-design/icons';
+import { Button, Typography, Spin, notification, Breadcrumb } from 'antd';
+import { PictureOutlined, HomeOutlined } from '@ant-design/icons';
 import MDEditor, { commands } from '@uiw/react-md-editor';
 import * as api from '../api';
 
@@ -33,13 +33,57 @@ const imageUploadCommand = {
                     const modifyText = `![${file.name}](${url})\n`;
                     executeApi.replaceSelection(modifyText);
                 } catch (error) {
-                    message.error(error.message);
+                    notification.error({
+                        message: "Image upload failed",
+                        description: error.message,
+                        placement: 'top',
+                    });
                 }
             }
         };
         input.click();
     },
 };
+
+// Custom component to render <pre> tags with a copy button
+const CustomPre = ({ children, ...props }) => {
+    const preRef = useRef(null);
+    const [lang, setLang] = useState('text');
+
+    useEffect(() => {
+        if (preRef.current) {
+            const codeElement = preRef.current.querySelector('code');
+            if (codeElement) {
+                const langMatch = codeElement.className.match(/language-(\w+)/);
+                setLang(langMatch ? langMatch[1] : 'text');
+            }
+        }
+    }, [children]);
+
+    const handleCopy = () => {
+        if (preRef.current) {
+            const code = preRef.current.innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                notification.success({ message: 'Copied!', duration: 2, placement: 'top' });
+            }).catch(() => {
+                notification.error({ message: 'Failed to copy.', duration: 2, placement: 'top' });
+            });
+        }
+    };
+
+    return (
+        <div className="code-block-wrapper">
+            <div className="code-block-header">
+                <span className="code-block-lang">{lang}</span>
+                <Button className="code-block-copy-btn" onClick={handleCopy} size="small">Copy</Button>
+            </div>
+            <pre ref={preRef} {...props}>
+                {children}
+            </pre>
+        </div>
+    );
+};
+
 
 const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
     const [isEditing, setIsEditing] = useState(false);
@@ -51,13 +95,6 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
         fileContent,
         saveDoc,
         selectedFolder,
-        fetchDocContent,
-        setSelectedFolder,
-        setView,
-        trashedItems,
-        restoreItem,
-        deletePermanently,
-        handleEmptyTrash,
         importFile,
         exportAll,
         fileInputRef,
@@ -72,130 +109,47 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
         images,
         fetchImages,
         handleDeleteImage,
-        navigateToPath
+        emptyTrash,
+        encodePath,
+        navigate,
+        trashedItems,
+        restoreItem,
+        deletePermanently,
     } = notes;
-
-    const editorWrapperRef = useRef(null);
 
     useEffect(() => {
         setIsEditing(false);
     }, [selectedDoc]);
-    
-    useEffect(() => {
-        if (view !== 'document' || isLoading || isEditing) {
-            return;
-        }
-
-        const editorNode = editorWrapperRef.current;
-        if (!editorNode) return;
-
-        // This function finds all <pre> elements and adds a wrapper with a copy button.
-        const addCopyButtons = (targetNode) => {
-            const codeBlocks = targetNode.querySelectorAll ? targetNode.querySelectorAll('pre') : [];
-
-            codeBlocks.forEach(preElement => {
-                // If it already has our custom wrapper, skip it.
-                if (preElement.parentElement.classList.contains('code-block-wrapper')) {
-                    return;
-                }
-
-                const codeElement = preElement.querySelector('code');
-                if (!codeElement) return;
-
-                const code = codeElement.innerText;
-                const langMatch = codeElement.className.match(/language-(\w+)/);
-                const lang = langMatch ? langMatch[1] : 'text';
-
-                const wrapper = document.createElement('div');
-                wrapper.className = 'code-block-wrapper';
-                
-                const header = document.createElement('div');
-                header.className = 'code-block-header';
-
-                const langText = document.createElement('span');
-                langText.className = 'code-block-lang';
-                langText.innerText = lang;
-
-                const button = document.createElement('button');
-                button.className = 'code-block-copy-btn';
-                button.innerText = 'Copy';
-
-                button.onclick = (e) => {
-                    e.stopPropagation();
-                    navigator.clipboard.writeText(code).then(() => {
-                        message.success('Copied!');
-                    }).catch(() => {
-                        message.error('Failed to copy.');
-                    });
-                };
-                
-                header.appendChild(langText);
-                header.appendChild(button);
-                
-                // Insert the wrapper before the <pre> element and move the <pre> inside it.
-                preElement.parentNode.insertBefore(wrapper, preElement);
-                wrapper.appendChild(header);
-                wrapper.appendChild(preElement);
-            });
-        };
-
-        // Initial run
-        addCopyButtons(editorNode);
-
-        // Set up a MutationObserver to handle dynamically added code blocks.
-        const observer = new MutationObserver((mutationsList) => {
-            for (const mutation of mutationsList) {
-                mutation.addedNodes.forEach(node => {
-                    if (node.nodeType === Node.ELEMENT_NODE) {
-                        addCopyButtons(node);
-                    }
-                });
-            }
-        });
-
-        observer.observe(editorNode, { childList: true, subtree: true });
-
-        // Cleanup observer on component unmount or when dependencies change.
-        return () => observer.disconnect();
-    }, [view, isLoading, isEditing, markdown]); // Rerun when content changes in preview mode
-
 
     const handleEditSave = () => {
-        if(isEditing) {
+        if (isEditing) {
             saveDoc();
         }
         setIsEditing(!isEditing);
     }
 
-    const renderBreadcrumbTitle = (path) => {
-        const pathParts = path ? path.split('/') : [];
-        let accumulatedPath = '';
-        const breadcrumbItems = pathParts.map((part, index) => {
-            const isLast = index === pathParts.length - 1;
-            accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
-            const linkPath = accumulatedPath;
+    const renderBreadcrumbs = (path) => {
+        const parts = path ? path.split('/') : [];
+        const items = [
+            {
+                title: <HomeOutlined />,
+                onClick: () => navigate('/'),
+            },
+            ...parts.map((part, index) => {
+                const fullPath = parts.slice(0, index + 1).join('/');
+                const isLast = index === parts.length - 1;
+                const item = {
+                    title: part,
+                };
+                 // Only make it clickable if it's not the last part of the path
+                 if (!isLast) {
+                    item.onClick = () => navigate(`/data/${encodePath(fullPath)}`);
+                }
+                return item;
+            }),
+        ];
 
-            if (isLast) {
-                return <Breadcrumb.Item key={linkPath}>{part}</Breadcrumb.Item>;
-            }
-
-            return (
-                <Breadcrumb.Item key={linkPath}>
-                    <a onClick={() => navigateToPath(linkPath)}>{part}</a>
-                </Breadcrumb.Item>
-            );
-        });
-
-        return (
-             <Title level={2} style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <Breadcrumb separator=">">
-                    <Breadcrumb.Item>
-                        <a onClick={() => navigateToPath('')}>Home</a>
-                    </Breadcrumb.Item>
-                    {breadcrumbItems}
-                </Breadcrumb>
-            </Title>
-        );
+        return <Breadcrumb items={items} />;
     };
 
     const renderMainContent = () => {
@@ -212,7 +166,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                 return (
                     <div data-color-mode={isDarkMode ? 'dark' : 'light'} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, paddingBottom: '1rem' }}>
-                            {renderBreadcrumbTitle(selectedDoc)}
+                            {renderBreadcrumbs(selectedDoc)}
                             <Button type="primary" onClick={handleEditSave}>
                                 {isEditing ? 'Save' : 'Edit'}
                             </Button>
@@ -231,9 +185,12 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                                     ]}
                                 />
                             ) : (
-                                <div ref={editorWrapperRef} className="wmde-markdown" style={{ height: '100%', overflowY: 'auto', padding: '2rem', borderRadius: '6px' }}>
-                                    <MDEditor.Markdown 
+                                <div className="wmde-markdown" style={{ height: '100%', overflowY: 'auto', padding: '2rem', borderRadius: '6px' }}>
+                                    <MDEditor.Markdown
                                         source={markdown}
+                                        components={{
+                                            pre: CustomPre,
+                                        }}
                                     />
                                 </div>
                             )}
@@ -243,7 +200,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
             case 'image':
                 return (
                     <>
-                        {renderBreadcrumbTitle(selectedDoc)}
+                         {renderBreadcrumbs(selectedDoc)}
                         <div style={{ flex: 1, textAlign: 'center', marginTop: '1rem' }}>
                             <img src={fileContent} alt={selectedDoc} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
                         </div>
@@ -252,7 +209,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
             case 'text':
                 return (
                     <>
-                        {renderBreadcrumbTitle(selectedDoc)}
+                        {renderBreadcrumbs(selectedDoc)}
                         <pre style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word', flex: 1, marginTop: '1rem' }}>
                             {fileContent}
                         </pre>
@@ -260,19 +217,12 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                 );
             case 'folder':
                 return <TableOfContents
-                    notes={notes}
-                    title={selectedFolder.path}
-                    items={selectedFolder.children}
-                    onSelect={(item) => {
-                        if (item.type === 'file') {
-                            fetchDocContent(item.path);
-                        } else {
-                            setSelectedFolder(item);
-                            setView('folder');
-                        }
-                    }} />;
+                    folder={selectedFolder}
+                    onSelect={(item) => navigate(`/data/${encodePath(item.path)}`)}
+                    renderBreadcrumbs={renderBreadcrumbs}
+                    />;
             case 'trash':
-                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmptyTrash={handleEmptyTrash} />;
+                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmpty={emptyTrash} />;
             case 'settings':
                 return <SettingsView
                     onImport={importFile}
@@ -294,17 +244,10 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
             case 'welcome':
             default:
                 return <TableOfContents
-                    notes={notes}
-                    title="Home"
-                    items={notes.documents}
-                    onSelect={(item) => {
-                        if (item.type === 'file') {
-                            fetchDocContent(item.path);
-                        } else {
-                            setSelectedFolder(item);
-                            setView('folder');
-                        }
-                    }} />;
+                    folder={{ path: '', children: notes.documents}}
+                    onSelect={(item) => navigate(`/data/${encodePath(item.path)}`)}
+                    renderBreadcrumbs={renderBreadcrumbs}
+                    />;
         }
     };
 

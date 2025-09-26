@@ -38,6 +38,17 @@ type RenameOperation struct {
 	NewPath string `json:"newPath"`
 }
 
+// ImageFile represents an image file in the images directory.
+type ImageFile struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// Helper function to decode URL path segments (replace underscores with spaces).
+func decodePath(path string) string {
+	return strings.ReplaceAll(path, "_", " ")
+}
+
 func logActivity(message string) {
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -191,33 +202,50 @@ func main() {
 	}
 
 	r := mux.NewRouter()
-	api := r.PathPrefix("/api/").Subrouter()
 
+	// API routes must be registered before the SPA handler
+	api := r.PathPrefix("/api/").Subrouter()
 	api.HandleFunc("/documents/{id:.*}/rename", renameDocumentOrFolder).Methods("PUT")
 	api.HandleFunc("/documents/{id:.*}", moveItemToTrash).Methods("DELETE")
 	api.HandleFunc("/documents/{id:.*}", getDocument).Methods("GET")
 	api.HandleFunc("/documents/{id:.*}", saveDocument).Methods("PUT")
-
 	api.HandleFunc("/documents", listDocuments).Methods("GET")
 	api.HandleFunc("/folders/{id:.*}", createFolder).Methods("POST")
 	api.HandleFunc("/export/{id:.*}", exportHandler).Methods("GET")
 	api.HandleFunc("/import", importHandler).Methods("POST")
-
 	api.HandleFunc("/images", uploadImageHandler).Methods("POST")
-	api.HandleFunc("/images/list", listImagesHandler).Methods("GET")
-	api.HandleFunc("/images/delete/{filename:.*}", deleteImageHandler).Methods("DELETE")
-
+	api.HandleFunc("/images", listImagesHandler).Methods("GET")
+	api.HandleFunc("/images/{name}", deleteImageHandler).Methods("DELETE")
 	api.HandleFunc("/trash", listTrashItems).Methods("GET")
 	api.HandleFunc("/trash/restore/{id:.*}", restoreItemFromTrash).Methods("PUT")
 	api.HandleFunc("/trash/delete/{id:.*}", deleteItemPermanently).Methods("DELETE")
-	api.HandleFunc("/trash/empty", emptyTrashHandler).Methods("DELETE")
-
+	api.HandleFunc("/trash/empty", emptyTrash).Methods("DELETE")
 	api.HandleFunc("/settings/resolve-conflicts", resolveConflictsHandler).Methods("POST")
 	api.HandleFunc("/logs", getLogsHandler).Methods("GET")
 	api.HandleFunc("/logs", clearLogsHandler).Methods("DELETE")
 
+	// Serve static assets for images
 	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", http.FileServer(http.Dir(imagesDir))))
-	r.PathPrefix("/").Handler(http.FileServer(http.Dir("/app/frontend/build")))
+
+	// SPA Handler: Serves the React app and handles client-side routing
+	// This should be the last handler
+	r.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		staticPath := "/app/frontend/build"
+		indexPath := "index.html"
+
+		// Check if the file exists in the static path
+		filePath := filepath.Join(staticPath, r.URL.Path)
+		_, err := os.Stat(filePath)
+		if os.IsNotExist(err) {
+			// If the file does not exist, serve the index.html
+			http.ServeFile(w, r, filepath.Join(staticPath, indexPath))
+			return
+		}
+
+		// Otherwise, serve the static file
+		http.FileServer(http.Dir(staticPath)).ServeHTTP(w, r)
+	}))
+
 	log.Printf("A Simple Data Flow server listening on port 8000...")
 	log.Fatal(http.ListenAndServe(":8000", r))
 }
@@ -301,45 +329,46 @@ func uploadImageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func listImagesHandler(w http.ResponseWriter, r *http.Request) {
-	var imageFiles []string
+	var images []ImageFile
 	files, err := os.ReadDir(imagesDir)
 	if err != nil {
 		http.Error(w, "Failed to read images directory", http.StatusInternalServerError)
 		return
 	}
+
 	for _, file := range files {
 		if !file.IsDir() {
-			imageFiles = append(imageFiles, file.Name())
+			images = append(images, ImageFile{
+				Name: file.Name(),
+				URL:  "/images/" + file.Name(),
+			})
 		}
 	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(imageFiles)
+	json.NewEncoder(w).Encode(images)
 }
 
 func deleteImageHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	filename := vars["filename"]
+	name := vars["name"]
+	filePath := filepath.Join(imagesDir, name)
 
 	// Basic security check to prevent path traversal
-	if strings.Contains(filename, "..") {
-		http.Error(w, "Invalid filename", http.StatusBadRequest)
+	if filepath.Dir(filePath) != imagesDir {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}
 
-	imagePath := filepath.Join(imagesDir, filename)
-
-	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		http.Error(w, "Image not found", http.StatusNotFound)
-		return
-	}
-
-	err := os.Remove(imagePath)
-	if err != nil {
+	if err := os.Remove(filePath); err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "Image not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, "Failed to delete image", http.StatusInternalServerError)
 		return
 	}
 
-	logActivity(fmt.Sprintf("IMAGE MGMT: Deleted image '%s'", filename))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -439,7 +468,7 @@ func listDocuments(w http.ResponseWriter, r *http.Request) {
 
 func getDocument(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	docID := vars["id"]
+	docID := decodePath(vars["id"])
 	filePath := filepath.Join(dataDir, docID)
 
 	if !strings.HasPrefix(filePath, dataDir) {
@@ -447,26 +476,33 @@ func getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check for supported file types and serve them with the correct content type
+	// Check for supported file types first
+	var foundPath string
 	extensions := []string{".md", ".txt", ".png", ".jpg", ".jpeg"}
 	for _, ext := range extensions {
 		if _, err := os.Stat(filePath + ext); err == nil {
-			filePath = filePath + ext
+			foundPath = filePath + ext
 			break
 		}
 	}
 
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "document not found", http.StatusNotFound)
+	// If no file found, check if it's a directory
+	if foundPath == "" {
+		if info, err := os.Stat(filePath); err == nil && info.IsDir() {
+			http.Error(w, "path is a directory", http.StatusBadRequest)
 			return
 		}
+		http.Error(w, "document not found", http.StatusNotFound)
+		return
+	}
+
+	content, err := os.ReadFile(foundPath)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	ext := filepath.Ext(filePath)
+	ext := filepath.Ext(foundPath)
 	contentType := "text/plain"
 	switch ext {
 	case ".md":
@@ -485,7 +521,7 @@ func getDocument(w http.ResponseWriter, r *http.Request) {
 
 func saveDocument(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	docID := vars["id"]
+	docID := decodePath(vars["id"])
 	filePath := filepath.Join(dataDir, docID)
 
 	if !strings.HasPrefix(filePath, dataDir) {
@@ -530,7 +566,7 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 
 func moveItemToTrash(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	itemPath := vars["id"]
+	itemPath := decodePath(vars["id"])
 	filePath := filepath.Join(dataDir, itemPath)
 
 	if !strings.HasPrefix(filePath, dataDir) {
@@ -587,7 +623,7 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	oldRelativePath := vars["id"]
+	oldRelativePath := decodePath(vars["id"])
 	oldFullPath := filepath.Join(dataDir, oldRelativePath)
 
 	info, err := os.Stat(oldFullPath)
@@ -608,7 +644,7 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	newRelativePath := req.NewPath
+	newRelativePath := decodePath(req.NewPath)
 	var newFullPath string
 	if info.IsDir() {
 		newFullPath = filepath.Join(dataDir, newRelativePath)
@@ -653,7 +689,7 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 
 func createFolder(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	folderPath := vars["id"]
+	folderPath := decodePath(vars["id"])
 	fullPath := filepath.Join(dataDir, folderPath)
 
 	if !strings.HasPrefix(fullPath, dataDir) {
@@ -722,7 +758,7 @@ func zipSource(source string, zipWriter *zip.Writer) error {
 // exportHandler exports a single file or a zip of a folder or the entire data directory.
 func exportHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	path := vars["id"]
+	path := decodePath(vars["id"])
 
 	if path == "" { // Export all as zip
 		w.Header().Set("Content-Type", "application/zip")
@@ -953,15 +989,15 @@ func deleteItemPermanently(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func emptyTrashHandler(w http.ResponseWriter, r *http.Request) {
+func emptyTrash(w http.ResponseWriter, r *http.Request) {
 	dir, err := os.ReadDir(trashDir)
 	if err != nil {
-		http.Error(w, "Could not read trash directory", http.StatusInternalServerError)
+		http.Error(w, "Failed to read trash directory", http.StatusInternalServerError)
 		return
 	}
 	for _, d := range dir {
 		os.RemoveAll(filepath.Join(trashDir, d.Name()))
 	}
-	logActivity("TRASH: Emptied the recycle bin.")
 	w.WriteHeader(http.StatusOK)
 }
+

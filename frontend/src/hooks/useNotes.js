@@ -1,6 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { message, Modal } from 'antd';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { notification } from 'antd';
 import * as api from '../api';
+
+// Helper functions for URL-friendly paths
+const encodePath = (path) => path.replace(/ /g, '_');
+const decodePath = (path) => path.replace(/_/g, ' ');
 
 const useNotes = () => {
     const [documents, setDocuments] = useState([]);
@@ -13,11 +17,10 @@ const useNotes = () => {
     const [selectedFolder, setSelectedFolder] = useState(null);
     const [trashedItems, setTrashedItems] = useState([]);
     const [fileContent, setFileContent] = useState(null);
-    const [images, setImages] = useState([]);
 
     const [conflictResults, setConflictResults] = useState(null);
     const [activityLogs, setActivityLogs] = useState('');
-
+    const [images, setImages] = useState([]);
 
     const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
     const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
@@ -37,114 +40,143 @@ const useNotes = () => {
 
     const fileInputRef = useRef();
 
-
-    const fetchDocs = async () => {
+    const fetchDocs = useCallback(async () => {
+        setIsLoading(true);
         try {
             const data = await api.fetchDocuments();
             setDocuments(data);
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Error fetching documents",
+                description: e.message,
+                placement: 'top',
+            });
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []);
 
-    const navigateToPath = (path) => {
-        if (path === '') {
-            setView('welcome');
-            setSelectedDoc(null);
-            setSelectedFolder(null);
-            window.history.pushState(null, '', '/');
-            return;
-        }
-    
-        // A helper function to find an item (file or folder) in the documents tree
-        const findItem = (items, targetPath) => {
-            for (const item of items) {
-                if (item.path === targetPath) {
-                    return item;
-                }
-                if (item.children) {
-                    const found = findItem(item.children, targetPath);
-                    if (found) return found;
-                }
-            }
-            return null;
-        };
-    
-        const item = findItem(documents, path);
-    
-        if (item) {
-            if (item.type === 'folder') {
-                setSelectedFolder(item);
-                setView('folder');
-                setSelectedDoc(null);
-                window.history.pushState({ id: path }, '', `/${path}`);
-            } else {
-                fetchDocContent(path, true);
-            }
-        } else {
-            // If not found, it might be a file path that lost its extension in the tree data.
-            // fetchDocContent is robust enough to try adding extensions.
-            fetchDocContent(path, true);
-        }
-    };
-
-    const fetchLogs = async () => {
+    const fetchLogs = useCallback(async () => {
         try {
             const logs = await api.fetchLogs();
             setActivityLogs(logs);
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Error fetching logs",
+                description: e.message,
+                placement: 'top',
+            });
         }
-    };
+    }, []);
+
+    const fetchImages = useCallback(async () => {
+        try {
+            const imageList = await api.fetchImages();
+            setImages(imageList);
+        } catch (e) {
+            notification.error({
+                message: "Could not fetch images",
+                description: e.message,
+                placement: 'top',
+            });
+        }
+    }, []);
 
     const handleClearLogs = async () => {
         try {
             await api.clearLogs();
-            message.success("Activity log cleared.");
-            fetchLogs(); // Refresh logs to show it's empty
-        } catch(e) {
-            message.error(e.message);
-        }
-    };
-
-    const fetchImages = async () => {
-        try {
-            const imageList = await api.listImages();
-            setImages(imageList);
+            notification.success({ message: "Activity log cleared.", placement: 'top' });
+            fetchLogs();
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Error clearing logs",
+                description: e.message,
+                placement: 'top',
+            });
         }
     };
 
-    const handleDeleteImage = (filename) => {
-        Modal.confirm({
-            title: 'Delete Image?',
-            content: `Are you sure you want to permanently delete "${filename}"? This action cannot be undone.`,
-            okText: 'Delete',
-            okButtonProps: { danger: true },
-            onOk: async () => {
-                try {
-                    await api.deleteImage(filename);
-                    message.success(`Image "${filename}" deleted.`);
-                    fetchImages();
-                } catch (e) {
-                    message.error(e.message);
-                }
-            },
-        });
+    const handleDeleteImage = async (name) => {
+        try {
+            await api.deleteImage(name);
+            notification.success({ message: "Image deleted.", placement: 'top' });
+            fetchImages();
+        } catch (e) {
+            notification.error({
+                message: "Error deleting image",
+                description: e.message,
+                placement: 'top',
+            });
+        }
     };
 
+    const findItemByPath = useCallback((path, items) => {
+        for (const item of items) {
+            if (item.path === path) {
+                return item;
+            }
+            if (item.children) {
+                const found = findItemByPath(path, item.children);
+                if (found) return found;
+            }
+        }
+        return null;
+    }, []);
+
+    const processPath = useCallback((path) => {
+        if (path === '/settings') {
+            setView('settings');
+            setSelectedDoc(null);
+            setSelectedFolder(null);
+        } else if (path === '/trash') {
+            getTrash();
+        } else if (path.startsWith('/data/')) {
+            const docId = decodePath(path.substring(6));
+            const item = findItemByPath(docId, documents);
+            if (item) {
+                if (item.type === 'folder') {
+                    setSelectedFolder(item);
+                    setView('folder');
+                    setSelectedDoc(null);
+                } else {
+                    fetchDocContent(docId, false);
+                }
+            } else {
+                 // It might be a file that exists but the tree isn't fully expanded/loaded
+                 // Or it could be a folder. Let fetchDocContent handle it.
+                 // The backend will return an error for a folder, which we'll handle.
+                fetchDocContent(docId, false);
+            }
+        } else {
+            setView('welcome');
+            setSelectedDoc(null);
+            setSelectedFolder(null);
+        }
+    }, [documents, findItemByPath]); // eslint-disable-line react-hooks/exhaustive-deps
+    
+    // Initial data fetch
     useEffect(() => {
         fetchDocs();
         fetchLogs();
-    }, []);
+    }, [fetchDocs, fetchLogs]);
+
+    // Handle routing based on URL
+    useEffect(() => {
+        const handleLocationChange = () => {
+            processPath(window.location.pathname);
+        };
+
+        window.addEventListener('popstate', handleLocationChange);
+        handleLocationChange(); // Process initial path
+
+        return () => {
+            window.removeEventListener('popstate', handleLocationChange);
+        };
+    }, [processPath]);
 
     const fetchDocContent = async (id, pushState = true) => {
         if (!id) return;
         try {
-            // Reset state to avoid showing stale content
             setMarkdown('');
             setFileContent(null);
             setIsLoading(true);
@@ -152,11 +184,13 @@ const useNotes = () => {
             const response = await api.fetchDocumentContent(id);
 
             if (pushState) {
-                window.history.pushState({ id }, '', `/${id}`);
+                const newUrl = `/data/${encodePath(id)}`;
+                window.history.pushState({ id }, '', newUrl);
             }
 
             const contentType = response.headers.get('Content-Type');
             setSelectedDoc(id);
+            setSelectedFolder(null);
 
             if (contentType.startsWith('image/')) {
                 const blob = await response.blob();
@@ -172,7 +206,21 @@ const useNotes = () => {
                 setView('text');
             }
         } catch (e) {
-            message.error(e.message);
+            // Check if it's the specific "path is a directory" error from our backend
+            if (e.message && e.message.includes('path is a directory')) {
+                const item = findItemByPath(id, documents);
+                if(item && item.type === 'folder') {
+                    setSelectedFolder(item);
+                    setView('folder');
+                    setSelectedDoc(null);
+                }
+            } else {
+                notification.error({
+                    message: "Error fetching content",
+                    description: e.message,
+                    placement: 'top',
+                });
+            }
         } finally {
             setIsLoading(false);
         }
@@ -181,17 +229,24 @@ const useNotes = () => {
     const saveDoc = async () => {
         if (!selectedDoc) return;
         try {
-            await api.saveDocument(selectedDoc, markdown); // markdown state is updated by Lexical's OnChangePlugin
-            message.success("Document saved.");
+            await api.saveDocument(selectedDoc, markdown);
+            notification.success({
+                message: "Document saved.",
+                placement: 'top',
+            });
             fetchDocs();
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Error saving document",
+                description: e.message,
+                placement: 'top',
+            });
         }
     };
 
     const createNote = async () => {
         if (!newNoteName) {
-            message.warning("Note name cannot be empty.");
+            notification.warning({ message: "Note name cannot be empty.", placement: 'top' });
             return;
         }
         const finalPath = currentFolder ? `${currentFolder}/${newNoteName}` : newNoteName;
@@ -199,29 +254,46 @@ const useNotes = () => {
             await api.createNote(finalPath, '# New Document\n\nWrite your content here.');
             setNewNoteName('');
             setIsNewNoteModalVisible(false);
-            fetchDocs();
-            fetchDocContent(finalPath);
-            message.success("Note created.");
+            await fetchDocs();
+            navigate(`/data/${encodePath(finalPath)}`);
+            notification.success({
+                message: "Note created.",
+                placement: 'top',
+            });
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Error creating note",
+                description: e.message,
+                placement: 'top',
+            });
         }
+    };
+
+    const navigate = (path) => {
+        window.history.pushState(null, '', path);
+        processPath(path);
     };
 
     const renameItem = async () => {
         if (!itemToRename || !newNoteName) return;
-    
+
         const oldPathParts = itemToRename.path.split('/');
         oldPathParts.pop(); // Remove old name
         const parentPath = oldPathParts.join('/');
         const newPath = parentPath ? `${parentPath}/${newNoteName}` : newNoteName;
-    
+
         try {
             await api.renameItem(itemToRename.path, newPath);
             setIsRenameModalVisible(false);
-            fetchDocs();
-            message.success(`${itemToRename.name} renamed.`);
+            await fetchDocs();
+            notification.success({ message: `${itemToRename.name} renamed.`, placement: 'top' });
+            if (selectedDoc === itemToRename.path) {
+                const newUrl = `/data/${encodePath(newPath)}`;
+                window.history.replaceState({ id: newPath }, '', newUrl);
+                setSelectedDoc(newPath);
+            }
         } catch (e) {
-            message.error(e.message);
+            notification.error({ message: "Error renaming item", description: e.message, placement: 'top' });
         }
     };
 
@@ -232,18 +304,17 @@ const useNotes = () => {
             setIsDeleteModalVisible(false);
             fetchDocs();
             if (selectedDoc === itemToDelete.path) {
-                setView('welcome');
-                setSelectedDoc(null);
+                navigate('/');
             }
-            message.success(`${itemToDelete.name} moved to recycle bin.`);
+            notification.success({ message: `${itemToDelete.name} moved to recycle bin.`, placement: 'top' });
         } catch (e) {
-            message.error(e.message);
+            notification.error({ message: "Error deleting item", description: e.message, placement: 'top' });
         }
     };
 
     const createFolder = async () => {
         if (!newFolderName) {
-            message.warning("Folder name cannot be empty.");
+            notification.warning({ message: "Folder name cannot be empty.", placement: 'top' });
             return;
         }
         const fullPath = folderToCreateIn ? `${folderToCreateIn}/${newFolderName}` : newFolderName;
@@ -251,9 +322,9 @@ const useNotes = () => {
             await api.createFolder(fullPath);
             setIsNewFolderModalVisible(false);
             fetchDocs();
-            message.success("Folder created.");
+            notification.success({ message: "Folder created.", placement: 'top' });
         } catch (e) {
-            message.error(e.message);
+            notification.error({ message: "Error creating folder", description: e.message, placement: 'top' });
         }
     };
 
@@ -264,7 +335,10 @@ const useNotes = () => {
         const currentDirectory = itemToMove.path.substring(0, itemToMove.path.lastIndexOf('/'));
 
         if (destinationPath === currentDirectory) {
-            message.error("Cannot move item to its current location.");
+            notification.error({
+                message: "Cannot move item to its current location.",
+                placement: 'top',
+            });
             setIsMoveModalVisible(false);
             return;
         }
@@ -274,10 +348,22 @@ const useNotes = () => {
         try {
             await api.renameItem(itemToMove.path, newPath)
             setIsMoveModalVisible(false);
-            fetchDocs();
-            message.success(`${itemToMove.name} moved.`);
+            await fetchDocs();
+            notification.success({
+                message: `${itemToMove.name} moved.`,
+                placement: 'top',
+            });
+            if (selectedDoc === itemToMove.path) {
+                const newUrl = `/data/${encodePath(newPath)}`;
+                window.history.replaceState({ id: newPath }, '', newUrl);
+                setSelectedDoc(newPath);
+            }
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Error moving item",
+                description: e.message,
+                placement: 'top',
+            });
         }
     };
 
@@ -290,10 +376,17 @@ const useNotes = () => {
 
         try {
             await api.importFile(formData);
-            message.success("Import successful.");
+            notification.success({
+                message: "Import successful.",
+                placement: 'top',
+            });
             fetchDocs();
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Import failed.",
+                description: e.message,
+                placement: 'top',
+            });
         }
     };
 
@@ -313,7 +406,11 @@ const useNotes = () => {
             a.remove();
             window.URL.revokeObjectURL(url);
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Error exporting documents",
+                description: e.message,
+                placement: 'top',
+            });
         }
     };
 
@@ -322,50 +419,47 @@ const useNotes = () => {
             const data = await api.fetchTrash();
             setTrashedItems(data || []);
             setView('trash');
+            setSelectedDoc(null);
+            setSelectedFolder(null);
         } catch (e) {
-            message.error(e.message);
+            notification.error({ message: "Error", description: e.message, placement: 'top' });
         }
     };
 
     const restoreItem = async (id) => {
         try {
             await api.restoreItemFromTrash(id);
-            message.success("Item restored");
+            notification.success({ message: "Item restored", placement: 'top' });
             getTrash();
             fetchDocs();
         } catch (e) {
-            message.error(e.message);
+            notification.error({ message: "Error", description: e.message, placement: 'top' });
         }
     };
 
     const deletePermanently = async (id) => {
         try {
             await api.deleteItemPermanently(id);
-            message.success("Item permanently deleted");
+            notification.success({ message: "Item permanently deleted", placement: 'top' });
             getTrash();
         } catch (e) {
-            message.error(e.message);
+            notification.error({ message: "Error", description: e.message, placement: 'top' });
         }
     };
 
-    const handleEmptyTrash = () => {
-        Modal.confirm({
-            title: 'Empty Recycle Bin?',
-            content: 'Are you sure you want to permanently delete all items in the recycle bin? This action cannot be undone.',
-            okText: 'Empty',
-            okButtonProps: { danger: true },
-            onOk: async () => {
-                try {
-                    await api.emptyTrash();
-                    message.success('Recycle bin emptied.');
-                    setTrashedItems([]);
-                    fetchLogs();
-                } catch (e) {
-                    message.error(e.message);
-                }
-            },
-        });
-    };
+    const emptyTrash = async () => {
+        try {
+            await api.emptyTrash();
+            notification.success({ message: "Recycle bin emptied.", placement: 'top' });
+            getTrash();
+        } catch (e) {
+            notification.error({
+                message: "Error emptying recycle bin",
+                description: e.message,
+                placement: 'top',
+            });
+        }
+    }
 
     const handleResolveConflicts = async () => {
         setIsResolving(true);
@@ -374,14 +468,27 @@ const useNotes = () => {
             const operations = await api.resolveNameConflicts();
             setConflictResults(operations || []);
             if (operations && operations.length > 0) {
-                message.success("Naming conflicts have been resolved.", 5);
+                notification.success({
+                    message: "Data integrity check complete",
+                    description: "Naming conflicts have been resolved.",
+                    duration: 5,
+                    placement: 'top',
+                });
             } else {
-                message.success("No naming conflicts found.");
+                notification.success({
+                    message: "Data integrity check complete",
+                    description: "No naming conflicts found.",
+                    placement: 'top',
+                });
             }
             fetchDocs();
             fetchLogs();
         } catch (e) {
-            message.error(e.message);
+            notification.error({
+                message: "Error checking data integrity",
+                description: e.message,
+                placement: 'top',
+            });
         } finally {
             setIsResolving(false);
         }
@@ -430,7 +537,6 @@ const useNotes = () => {
         setSelectedFolder,
         trashedItems,
         fileContent,
-        images,
         isRenameModalVisible,
         setIsRenameModalVisible,
         isDeleteModalVisible,
@@ -460,7 +566,6 @@ const useNotes = () => {
         expandedKeys,
         setExpandedKeys,
         fileInputRef,
-        fetchDocContent,
         saveDoc,
         createNote,
         renameItem,
@@ -469,19 +574,20 @@ const useNotes = () => {
         moveItem,
         importFile,
         exportAll,
-        getTrash,
         restoreItem,
         deletePermanently,
-        handleEmptyTrash,
         handleResolveConflicts,
         conflictResults,
         setConflictResults,
         activityLogs,
         fetchLogs,
         handleClearLogs,
+        images,
         fetchImages,
         handleDeleteImage,
-        navigateToPath,
+        emptyTrash,
+        encodePath,
+        navigate,
     };
 };
 

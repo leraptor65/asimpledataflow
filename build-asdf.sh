@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Clear the terminal before running.
+clear
+
 # This script stops and rebuilds the 'asimpledataflow' project using Docker Compose,
 # and performs a thorough cleanup to save disk space.
 

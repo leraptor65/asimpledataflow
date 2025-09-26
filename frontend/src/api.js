@@ -1,5 +1,12 @@
 const API_URL = '/api';
 
+// Helper to encode paths for URL
+const encodeURLPath = (path) => {
+    if (!path) return '';
+    return path.split('/').map(segment => encodeURIComponent(segment.replace(/ /g, '_'))).join('/');
+};
+
+
 export const fetchDocuments = async () => {
     const response = await fetch(`${API_URL}/documents`);
     if (!response.ok) {
@@ -9,15 +16,16 @@ export const fetchDocuments = async () => {
 };
 
 export const fetchDocumentContent = async (id) => {
-    const response = await fetch(`${API_URL}/documents/${id}`);
+    const response = await fetch(`${API_URL}/documents/${encodeURLPath(id)}`);
     if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
     }
     return response;
 };
 
 export const saveDocument = async (id, content) => {
-    const response = await fetch(`${API_URL}/documents/${id}`, {
+    const response = await fetch(`${API_URL}/documents/${encodeURLPath(id)}`, {
         method: 'PUT',
         headers: {
             'Content-Type': 'text/markdown',
@@ -31,7 +39,7 @@ export const saveDocument = async (id, content) => {
 };
 
 export const createNote = async (path, content) => {
-    const response = await fetch(`${API_URL}/documents/${path}`, {
+    const response = await fetch(`${API_URL}/documents/${encodeURLPath(path)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'text/markdown' },
         body: content,
@@ -43,10 +51,10 @@ export const createNote = async (path, content) => {
 };
 
 export const renameItem = async (oldPath, newPath) => {
-    const response = await fetch(`${API_URL}/documents/${oldPath}/rename`, {
+    const response = await fetch(`${API_URL}/documents/${encodeURLPath(oldPath)}/rename`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPath }),
+        body: JSON.stringify({ newPath: newPath }),
     });
     if (!response.ok) {
         const errorText = await response.text();
@@ -55,7 +63,7 @@ export const renameItem = async (oldPath, newPath) => {
 };
 
 export const deleteItem = async (path) => {
-    const response = await fetch(`${API_URL}/documents/${path}`, {
+    const response = await fetch(`${API_URL}/documents/${encodeURLPath(path)}`, {
         method: 'DELETE',
     });
     if (!response.ok) {
@@ -65,7 +73,7 @@ export const deleteItem = async (path) => {
 };
 
 export const createFolder = async (path) => {
-    const response = await fetch(`${API_URL}/folders/${path}`, {
+    const response = await fetch(`${API_URL}/folders/${encodeURLPath(path)}`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -97,20 +105,25 @@ export const uploadImage = async (formData) => {
     return response.json();
 };
 
-export const listImages = async () => {
-    const response = await fetch(`${API_URL}/images/list`);
+export const fetchImages = async () => {
+    const response = await fetch(`${API_URL}/images`);
     if (!response.ok) {
-        throw new Error('Could not fetch images');
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
     }
     return response.json();
-}
+};
 
-export const deleteImage = async (filename) => {
-    const response = await fetch(`${API_URL}/images/delete/${filename}`, { method: 'DELETE' });
+export const deleteImage = async (name) => {
+    const response = await fetch(`${API_URL}/images/${name}`, {
+        method: 'DELETE',
+    });
     if (!response.ok) {
-        throw new Error('Could not delete image');
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
     }
-}
+};
+
 
 export const fetchTrash = async () => {
     const response = await fetch(`${API_URL}/trash`);
@@ -121,15 +134,14 @@ export const fetchTrash = async () => {
 }
 
 export const restoreItemFromTrash = async (id) => {
-    const response = await fetch(`${API_URL}/trash/restore/${id}`, { method: 'PUT' });
+    const response = await fetch(`${API_URL}/trash/restore/${encodeURLPath(id)}`, { method: 'PUT' });
     if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        throw new Error('Could not restore item');
     }
 }
 
 export const deleteItemPermanently = async (id) => {
-    const response = await fetch(`${API_URL}/trash/delete/${id}`, { method: 'DELETE' });
+    const response = await fetch(`${API_URL}/trash/delete/${encodeURLPath(id)}`, { method: 'DELETE' });
     if (!response.ok) {
         throw new Error('Could not delete item permanently');
     }
@@ -138,7 +150,7 @@ export const deleteItemPermanently = async (id) => {
 export const emptyTrash = async () => {
     const response = await fetch(`${API_URL}/trash/empty`, { method: 'DELETE' });
     if (!response.ok) {
-        throw new Error('Could not empty recycle bin');
+        throw new Error('Could not empty trash');
     }
 }
 
@@ -170,3 +182,4 @@ export const clearLogs = async () => {
         throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
     }
 };
+

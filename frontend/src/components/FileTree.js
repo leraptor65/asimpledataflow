@@ -45,7 +45,7 @@ const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFold
     });
 };
 
-const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, selectedDoc, onSelectFolder, onMoveItem, expandedKeys, setExpandedKeys }) => {
+const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, selectedDoc, onSelectFolder, onMoveItem, expandedKeys, setExpandedKeys, encodePath }) => {
 
     const treeData = useMemo(() => buildTreeData({ items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem }), [items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem]);
 
@@ -114,3 +114,4 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
 };
 
 export default FileTree;
+

@@ -42,8 +42,16 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
         setIsMoveModalVisible,
         getTrash,
         setExpandedKeys,
-        expandedKeys
+        expandedKeys,
+        encodePath
     } = notes;
+
+    const navigate = (path) => {
+        window.history.pushState(null, '', path);
+        // Manually trigger popstate event to update UI
+        const popStateEvent = new PopStateEvent('popstate');
+        window.dispatchEvent(popStateEvent);
+    };
 
     const getAllKeys = (items) => {
         let keys = [];
@@ -64,13 +72,13 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
             key: 'trash',
             icon: <TrashIcon />,
             label: isSidebarCollapsed ? null : 'Recycle Bin',
-            onClick: () => { getTrash(); setSelectedDoc(null); },
+            onClick: () => navigate('/trash'),
         },
         {
             key: 'settings',
             icon: <SettingOutlined />,
             label: isSidebarCollapsed ? null : 'Settings',
-            onClick: () => { setView('settings'); setSelectedDoc(null); },
+            onClick: () => navigate('/settings'),
         },
     ];
 
@@ -102,7 +110,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
                         )}
                         <Button
                             icon={<HomeOutlined />}
-                            onClick={() => { setView('welcome'); setSelectedDoc(null); window.history.pushState(null, '', '/'); }}
+                            onClick={() => navigate('/')}
                             type="text"
                             style={{ color: isDarkMode ? '#fff' : 'rgba(0, 0, 0, 0.85)' }}
                         />
@@ -147,7 +155,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
                     {!isSidebarCollapsed && (
                         <FileTree
                             items={filteredDocuments}
-                            onSelect={fetchDocContent}
+                            onSelect={(path) => navigate(`/data/${encodePath(path)}`)}
                             onSelectFolder={(folder) => {
                                 setSelectedFolder(folder);
                                 setView('folder');
@@ -156,11 +164,12 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
                             onDelete={(item) => { setItemToDelete(item); setIsDeleteModalVisible(true); }}
                             onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); setIsNewNoteModalVisible(true); }}
                             onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); setIsNewFolderModalVisible(true); }}
-                            onExportItem={(item) => { window.open(`/api/export/${item.path}`, '_blank'); }}
+                            onExportItem={(item) => { window.open(`/api/export/${encodePath(item.path)}`, '_blank'); }}
                             selectedDoc={notes.selectedDoc}
                             onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); setIsMoveModalVisible(true); }}
                             expandedKeys={expandedKeys}
                             setExpandedKeys={setExpandedKeys}
+                            encodePath={encodePath}
                         />
                     )}
                 </div>
@@ -176,3 +185,4 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
 };
 
 export default Sidebar;
+
