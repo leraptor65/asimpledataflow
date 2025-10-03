@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Layout, ConfigProvider, theme } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Layout, ConfigProvider, theme, Grid } from 'antd';
 import Sidebar from './components/Sidebar';
 import NoteEditor from './components/NoteEditor';
 import { Modals } from './components/Modals';
@@ -7,14 +7,24 @@ import useNotes from './hooks/useNotes';
 import useTheme from './hooks/useTheme';
 
 const { Content } = Layout;
+const { useBreakpoint } = Grid;
 
 function App() {
     const { isDarkMode, toggleTheme } = useTheme();
     const notes = useNotes();
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const screens = useBreakpoint();
 
-    // Dynamic width for the main content to adjust for the sidebar.
-    const mainContentMarginLeft = isSidebarCollapsed ? 80 : 280;
+    const isMobile = !screens.md;
+
+    // Automatically collapse the sidebar on mobile devices, and ensure it's expanded on desktop by default
+    useEffect(() => {
+        setIsSidebarCollapsed(isMobile);
+    }, [isMobile]);
+
+    // On mobile, the content should take up the full width.
+    // On desktop, we adjust the margin based on the sidebar's state.
+    const mainContentMarginLeft = isMobile ? 0 : isSidebarCollapsed ? 80 : 280;
 
     return (
         <ConfigProvider
@@ -22,17 +32,24 @@ function App() {
                 algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
             }}
         >
-            <Layout style={{ minHeight: '100vh', display: 'flex', flexDirection: 'row' }}>
-                <Sidebar
-                    notes={notes}
-                    isSidebarCollapsed={isSidebarCollapsed}
-                    setIsSidebarCollapsed={setIsSidebarCollapsed}
-                    toggleTheme={toggleTheme}
-                    isDarkMode={isDarkMode}
-                />
+            <Layout style={{ minHeight: '100vh', flexDirection: 'row' }}>
+                {!isMobile && (
+                    <Sidebar
+                        notes={notes}
+                        isSidebarCollapsed={isSidebarCollapsed}
+                        setIsSidebarCollapsed={setIsSidebarCollapsed}
+                        toggleTheme={toggleTheme}
+                        isDarkMode={isDarkMode}
+                    />
+                )}
                 <Layout style={{ marginLeft: mainContentMarginLeft, transition: 'margin-left 0.2s' }}>
-                    <Content style={{ padding: '1rem', display: 'flex', flexDirection: 'column', height: '100vh', overflowY: 'auto' }}>
-                        <NoteEditor notes={notes} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
+                    <Content style={{ padding: isMobile ? '0.5rem' : '1rem', display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+                        <NoteEditor
+                            notes={notes}
+                            isDarkMode={isDarkMode}
+                            toggleTheme={toggleTheme}
+                            isMobile={isMobile}
+                        />
                     </Content>
                 </Layout>
                 <Modals notes={notes} />

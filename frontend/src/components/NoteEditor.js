@@ -1,6 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Button, Typography, Spin, notification, Breadcrumb } from 'antd';
-import { PictureOutlined, HomeOutlined } from '@ant-design/icons';
+import { Button, Typography, Spin, notification, Breadcrumb, Dropdown } from 'antd';
+import {
+    PictureOutlined,
+    HomeOutlined,
+    ArrowLeftOutlined,
+    MoreOutlined,
+    PlusOutlined,
+} from '@ant-design/icons';
 import MDEditor, { commands } from '@uiw/react-md-editor';
 import * as api from '../api';
 
@@ -10,6 +16,7 @@ import SettingsView from './SettingsView';
 
 
 const { Title } = Typography;
+
 
 // Custom command for image upload
 const imageUploadCommand = {
@@ -85,8 +92,9 @@ const CustomPre = ({ children, ...props }) => {
 };
 
 
-const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
+const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
     const [isEditing, setIsEditing] = useState(false);
+
     const {
         view,
         selectedDoc,
@@ -115,6 +123,11 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
         trashedItems,
         restoreItem,
         deletePermanently,
+        setCurrentFolder,
+        setIsNewNoteModalVisible,
+        setIsNewFolderModalVisible,
+        setFolderToCreateIn,
+        setNewFolderName,
     } = notes;
 
     useEffect(() => {
@@ -141,7 +154,6 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                 const item = {
                     title: part,
                 };
-                 // Only make it clickable if it's not the last part of the path
                  if (!isLast) {
                     item.onClick = () => navigate(`/data/${encodePath(fullPath)}`);
                 }
@@ -151,6 +163,46 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
 
         return <Breadcrumb items={items} />;
     };
+
+    const handleBack = () => {
+        const currentPath = selectedDoc || selectedFolder?.path;
+        if (currentPath) {
+            const parts = currentPath.split('/');
+            if (parts.length > 1) {
+                const parentPath = parts.slice(0, -1).join('/');
+                navigate(`/data/${encodePath(parentPath)}`);
+            } else {
+                navigate('/');
+            }
+        } else {
+            navigate('/');
+        }
+    };
+
+    const handleNewNote = () => {
+        const path = selectedFolder ? selectedFolder.path : (selectedDoc ? selectedDoc.substring(0, selectedDoc.lastIndexOf('/')) : '');
+        setCurrentFolder(path);
+        setIsNewNoteModalVisible(true);
+    };
+
+    const handleNewFolder = () => {
+        const path = selectedFolder ? selectedFolder.path : (selectedDoc ? selectedDoc.substring(0, selectedDoc.lastIndexOf('/')) : '');
+        setFolderToCreateIn(path);
+        setNewFolderName('');
+        setIsNewFolderModalVisible(true);
+    };
+
+    const mobileMenuItems = [
+        { key: 'new-note', label: 'New Note', onClick: handleNewNote, icon: <PlusOutlined /> },
+        { key: 'new-folder', label: 'New Folder', onClick: handleNewFolder, icon: <PlusOutlined /> }
+    ];
+
+    const mobileMoreMenuItems = [
+        ...(view === 'trash' && trashedItems.length > 0 ? [{ key: 'empty-trash', label: 'Empty Recycle Bin', danger: true, onClick: emptyTrash }] : []),
+        { key: 'settings', label: 'Settings', onClick: () => navigate('/settings') },
+        { key: 'trash', label: 'Recycle Bin', onClick: () => navigate('/trash') },
+    ];
+
 
     const renderMainContent = () => {
         if (isLoading) {
@@ -164,13 +216,15 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
         switch (view) {
             case 'document':
                 return (
-                    <div data-color-mode={isDarkMode ? 'dark' : 'light'} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, paddingBottom: '1rem' }}>
-                            {renderBreadcrumbs(selectedDoc)}
-                            <Button type="primary" onClick={handleEditSave}>
-                                {isEditing ? 'Save' : 'Edit'}
-                            </Button>
-                        </div>
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                         {!isMobile && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, paddingBottom: '1rem' }}>
+                                {renderBreadcrumbs(selectedDoc)}
+                                <Button type="primary" onClick={handleEditSave}>
+                                    {isEditing ? 'Save' : 'Edit'}
+                                </Button>
+                            </div>
+                        )}
                         <div style={{ flex: '1 1 auto', overflow: 'hidden' }}>
                             {isEditing ? (
                                 <MDEditor
@@ -185,7 +239,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                                     ]}
                                 />
                             ) : (
-                                <div className="wmde-markdown" style={{ height: '100%', overflowY: 'auto', padding: '2rem', borderRadius: '6px' }}>
+                                <div className="wmde-markdown" style={{ height: '100%', overflowY: 'auto', padding: isMobile ? '0.5rem' : '2rem', borderRadius: '6px' }}>
                                     <MDEditor.Markdown
                                         source={markdown}
                                         components={{
@@ -200,8 +254,8 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
             case 'image':
                 return (
                     <>
-                         {renderBreadcrumbs(selectedDoc)}
-                        <div style={{ flex: 1, textAlign: 'center', marginTop: '1rem' }}>
+                         {!isMobile && renderBreadcrumbs(selectedDoc)}
+                        <div style={{ flex: 1, textAlign: 'center', marginTop: isMobile ? 0 : '1rem' }}>
                             <img src={fileContent} alt={selectedDoc} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
                         </div>
                     </>
@@ -209,8 +263,8 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
             case 'text':
                 return (
                     <>
-                        {renderBreadcrumbs(selectedDoc)}
-                        <pre style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word', flex: 1, marginTop: '1rem' }}>
+                        {!isMobile && renderBreadcrumbs(selectedDoc)}
+                        <pre style={{ whiteSpace: 'pre-wrap', wordWrap: 'break-word', flex: 1, marginTop: isMobile ? 0 : '1rem' }}>
                             {fileContent}
                         </pre>
                     </>
@@ -219,10 +273,10 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                 return <TableOfContents
                     folder={selectedFolder}
                     onSelect={(item) => navigate(`/data/${encodePath(item.path)}`)}
-                    renderBreadcrumbs={renderBreadcrumbs}
+                    renderBreadcrumbs={!isMobile ? renderBreadcrumbs : () => null}
                     />;
             case 'trash':
-                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmpty={emptyTrash} />;
+                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmpty={emptyTrash} isMobile={isMobile}/>;
             case 'settings':
                 return <SettingsView
                     onImport={importFile}
@@ -240,18 +294,47 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme }) => {
                     images={images}
                     fetchImages={fetchImages}
                     onDeleteImage={handleDeleteImage}
+                    isMobile={isMobile}
                 />;
             case 'welcome':
             default:
                 return <TableOfContents
                     folder={{ path: '', children: notes.documents}}
                     onSelect={(item) => navigate(`/data/${encodePath(item.path)}`)}
-                    renderBreadcrumbs={renderBreadcrumbs}
+                    renderBreadcrumbs={!isMobile ? renderBreadcrumbs : () => null}
                     />;
         }
     };
 
-    return renderMainContent();
+    return (
+        <div data-color-mode={isDarkMode ? 'dark' : 'light'} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            {/* Mobile Header */}
+            {isMobile && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexShrink: 0, gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Button icon={<HomeOutlined />} onClick={() => navigate('/')} />
+                        {view !== 'welcome' && <Button icon={<ArrowLeftOutlined />} onClick={handleBack} />}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {view === 'document' && (
+                             <Button type="primary" onClick={handleEditSave}>
+                                {isEditing ? 'Save' : 'Edit'}
+                            </Button>
+                        )}
+                        <Dropdown menu={{items: mobileMenuItems}} trigger={['click']}>
+                            <Button icon={<PlusOutlined />} />
+                        </Dropdown>
+                        <Dropdown menu={{items: mobileMoreMenuItems}} trigger={['click']}>
+                            <Button icon={<MoreOutlined />} />
+                        </Dropdown>
+                    </div>
+                </div>
+            )}
+            <div style={{ flex: '1 1 auto', overflowY: 'auto' }}>
+                 {renderMainContent()}
+            </div>
+        </div>
+    );
 };
 
 export default NoteEditor;

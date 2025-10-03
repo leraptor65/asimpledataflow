@@ -36,4 +36,3 @@ const TableOfContents = ({ folder, onSelect, renderBreadcrumbs }) => {
 };
 
 export default TableOfContents;
-

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layout, Input, Button, Tooltip, Menu, Typography, Grid } from 'antd';
+import { Layout, Input, Button, Tooltip, Menu, Typography } from 'antd';
 import {
     SearchOutlined,
     PlusOutlined,
@@ -13,14 +13,10 @@ import FileTree from './FileTree';
 
 const { Sider } = Layout;
 const { Title } = Typography;
-const { useBreakpoint } = Grid;
 
-
-const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme, isDarkMode }) => {
-    const screens = useBreakpoint();
+const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode }) => {
     const {
         documents,
-        setSelectedDoc,
         searchQuery,
         setSearchQuery,
         filteredDocuments,
@@ -30,7 +26,6 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
         setIsNewFolderModalVisible,
         setFolderToCreateIn,
         setNewFolderName,
-        fetchDocContent,
         setSelectedFolder,
         setItemToRename,
         setNewNoteName,
@@ -40,7 +35,6 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
         setItemToMove,
         setDestinationFolder,
         setIsMoveModalVisible,
-        getTrash,
         setExpandedKeys,
         expandedKeys,
         encodePath
@@ -48,7 +42,6 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
 
     const navigate = (path) => {
         window.history.pushState(null, '', path);
-        // Manually trigger popstate event to update UI
         const popStateEvent = new PopStateEvent('popstate');
         window.dispatchEvent(popStateEvent);
     };
@@ -88,7 +81,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
             collapsed={isSidebarCollapsed}
             onCollapse={(collapsed) => setIsSidebarCollapsed(collapsed)}
             width={280}
-            collapsedWidth={screens.xs ? 0 : 80}
+            collapsedWidth={80}
             theme={isDarkMode ? 'dark' : 'light'}
             style={{
                 overflow: 'auto',
@@ -97,7 +90,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, toggleTheme
                 left: 0,
                 top: 0,
                 bottom: 0,
-                zIndex: 1,
+                zIndex: 10,
             }}
         >
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

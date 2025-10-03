@@ -20,7 +20,8 @@ const SettingsView = ({
     onClearLogs,
     images,
     fetchImages,
-    onDeleteImage
+    onDeleteImage,
+    isMobile
 }) => {
     const handleImportClick = () => {
         if (fileInputRef.current) {
@@ -52,7 +53,7 @@ const SettingsView = ({
 
     return (
         <div>
-            <Title level={2} style={{ marginBottom: '1rem' }}>Settings</Title>
+            {!isMobile && <Title level={2} style={{ marginBottom: '1rem' }}>Settings</Title>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <Card title="Appearance">
                     <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -147,4 +148,3 @@ const SettingsView = ({
 };
 
 export default SettingsView;
-

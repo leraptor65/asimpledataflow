@@ -5,18 +5,20 @@ import { DeleteOutlined, FolderOutlined, SyncOutlined } from '@ant-design/icons'
 
 const { Title, Text } = Typography;
 
-const TrashView = ({ items, onRestore, onDelete, onEmptyTrash }) => {
+const TrashView = ({ items, onRestore, onDelete, onEmptyTrash, isMobile }) => {
 
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <Title level={2} style={{ margin: 0 }}>Recycle Bin</Title>
-                {items.length > 0 && (
-                    <Button danger onClick={onEmptyTrash}>
-                        Empty Recycle Bin
-                    </Button>
-                )}
-            </div>
+            {!isMobile && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <Title level={2} style={{ margin: 0 }}>Recycle Bin</Title>
+                    {items.length > 0 && (
+                        <Button danger onClick={onEmptyTrash}>
+                            Empty Recycle Bin
+                        </Button>
+                    )}
+                </div>
+            )}
 
             {items.length === 0 ? (
                 <Empty description="The recycle bin is empty." />
