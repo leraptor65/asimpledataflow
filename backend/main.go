@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,8 @@ var trashDir = "/app/data/.trash"
 var imagesDir = "/app/data/.images"
 var logsDir = "/app/data/.logs"
 var logFile = filepath.Join(logsDir, "activity.log")
+var referencesFile = filepath.Join(dataDir, ".references.json")
+var referenceRegex = regexp.MustCompile(`@\(([^)]+)\)`)
 
 // FileSystemItem represents a file or folder in the directory tree.
 type FileSystemItem struct {
@@ -42,6 +45,158 @@ type RenameOperation struct {
 type ImageFile struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
+}
+
+// References maps a document path to a list of paths that reference it.
+type References map[string][]string
+
+// --- Reference Management ---
+
+func loadReferences() (References, error) {
+	refs := make(References)
+	if _, err := os.Stat(referencesFile); os.IsNotExist(err) {
+		return refs, nil
+	}
+	data, err := os.ReadFile(referencesFile)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return refs, nil
+	}
+	err = json.Unmarshal(data, &refs)
+	return refs, err
+}
+
+func saveReferences(refs References) error {
+	data, err := json.MarshalIndent(refs, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(referencesFile, data, 0644)
+}
+
+func extractReferences(content []byte) []string {
+	re := referenceRegex
+	matches := re.FindAllSubmatch(content, -1)
+	var refs []string
+	seen := make(map[string]bool)
+	for _, match := range matches {
+		if len(match) > 1 {
+			refName := string(match[1])
+			if !seen[refName] {
+				refs = append(refs, refName)
+				seen[refName] = true
+			}
+		}
+	}
+	return refs
+}
+
+// remove all references that point FROM path
+func cleanReferencesFrom(refs References, path string) {
+	for target, sources := range refs {
+		newSources := []string{}
+		for _, source := range sources {
+			if source != path {
+				newSources = append(newSources, source)
+			}
+		}
+		refs[target] = newSources
+	}
+}
+
+func updateReferencesForFile(path string, content []byte) error {
+	refs, err := loadReferences()
+	if err != nil {
+		return err
+	}
+
+	cleanReferencesFrom(refs, path)
+
+	newRefs := extractReferences(content)
+	for _, target := range newRefs {
+		found := false
+		for _, source := range refs[target] {
+			if source == path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			refs[target] = append(refs[target], path)
+		}
+	}
+
+	return saveReferences(refs)
+}
+
+func removeReferencesForFile(path string) error {
+	refs, err := loadReferences()
+	if err != nil {
+		return err
+	}
+
+	cleanReferencesFrom(refs, path)
+	delete(refs, path) // Also remove if this file itself was a target
+
+	return saveReferences(refs)
+}
+
+func updateReferencesForRename(oldPath, newPath string, isDir bool) error {
+	refs, err := loadReferences()
+	if err != nil {
+		return err
+	}
+	newRefs := make(References)
+
+	if isDir {
+		// Folder rename: update all paths with the old prefix
+		oldPrefix := oldPath + "/"
+		newPrefix := newPath + "/"
+
+		for target, sources := range refs {
+			newTarget := target
+			if strings.HasPrefix(target, oldPrefix) {
+				newTarget = newPrefix + strings.TrimPrefix(target, oldPrefix)
+			} else if target == oldPath {
+				newTarget = newPath // in case it's a reference to the folder itself
+			}
+
+			newSources := []string{}
+			for _, source := range sources {
+				if strings.HasPrefix(source, oldPrefix) {
+					newSources = append(newSources, newPrefix+strings.TrimPrefix(source, oldPrefix))
+				} else if source == oldPath {
+					newSources = append(newSources, newPath)
+				} else {
+					newSources = append(newSources, source)
+				}
+			}
+			newRefs[newTarget] = newSources
+		}
+
+	} else {
+		// File rename: more targeted update
+		for target, sources := range refs {
+			newTarget := target
+			if target == oldPath {
+				newTarget = newPath
+			}
+
+			newSources := []string{}
+			for _, source := range sources {
+				if source == oldPath {
+					newSources = append(newSources, newPath)
+				} else {
+					newSources = append(newSources, source)
+				}
+			}
+			newRefs[newTarget] = newSources
+		}
+	}
+
+	return saveReferences(newRefs)
 }
 
 // Helper function to decode URL path segments (replace underscores with spaces).
@@ -223,6 +378,7 @@ func main() {
 	api.HandleFunc("/settings/resolve-conflicts", resolveConflictsHandler).Methods("POST")
 	api.HandleFunc("/logs", getLogsHandler).Methods("GET")
 	api.HandleFunc("/logs", clearLogsHandler).Methods("DELETE")
+	api.HandleFunc("/references/{id:.*}", getReferencesHandler).Methods("GET")
 
 	// Serve static assets for images
 	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", http.FileServer(http.Dir(imagesDir))))
@@ -248,6 +404,25 @@ func main() {
 
 	log.Printf("A Simple Data Flow server listening on port 8000...")
 	log.Fatal(http.ListenAndServe(":8000", r))
+}
+
+func getReferencesHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	docID := decodePath(vars["id"])
+
+	refs, err := loadReferences()
+	if err != nil {
+		http.Error(w, "Could not load references", http.StatusInternalServerError)
+		return
+	}
+
+	backlinks, ok := refs[docID]
+	if !ok {
+		backlinks = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(backlinks)
 }
 
 func resolveConflictsHandler(w http.ResponseWriter, r *http.Request) {
@@ -576,6 +751,10 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := updateReferencesForFile(docID, content); err != nil {
+		log.Printf("Failed to update references for %s: %v", docID, err)
+	}
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -621,6 +800,12 @@ func moveItemToTrash(w http.ResponseWriter, r *http.Request) {
 	if err := os.Rename(filePath, trashPath); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	relPath, _ := filepath.Rel(dataDir, filePath)
+	relPathWithoutExt := strings.TrimSuffix(relPath, filepath.Ext(relPath))
+	if err := removeReferencesForFile(relPathWithoutExt); err != nil {
+		log.Printf("Failed to remove references for %s: %v", relPathWithoutExt, err)
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -693,6 +878,13 @@ func renameDocumentOrFolder(w http.ResponseWriter, r *http.Request) {
 	if err := os.Rename(oldFullPath, newFullPath); err != nil {
 		http.Error(w, "Could not rename/move item: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	oldRelPathNoExt := strings.TrimSuffix(oldRelativePath, filepath.Ext(oldFullPath))
+	newRelPathNoExt := strings.TrimSuffix(newRelativePath, filepath.Ext(newFullPath))
+
+	if err := updateReferencesForRename(oldRelPathNoExt, newRelPathNoExt, info.IsDir()); err != nil {
+		log.Printf("Failed to update references on rename: %v", err)
 	}
 
 	relOldPath, _ := filepath.Rel(dataDir, oldFullPath)
@@ -978,6 +1170,15 @@ func restoreItemFromTrash(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	relPath, _ := filepath.Rel(dataDir, restorePath)
+	content, err := os.ReadFile(restorePath)
+	if err == nil {
+		if err := updateReferencesForFile(strings.TrimSuffix(relPath, filepath.Ext(relPath)), content); err != nil {
+			log.Printf("Failed to update references for restored file %s: %v", relPath, err)
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -990,6 +1191,28 @@ func deleteItemPermanently(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "item not found in trash", http.StatusNotFound)
 		return
+	}
+
+	// The 'id' from the request includes the timestamp. We need the original path.
+	originalPath := id
+	ext := filepath.Ext(originalPath)
+	if ext != "" {
+		base := originalPath[0 : len(originalPath)-len(ext)]
+		if len(base) > 15 {
+			timestamp := base[len(base)-15:]
+			if _, err := time.Parse("_20060102150405", timestamp); err == nil {
+				originalPath = base[0:len(base)-15] + ext
+			}
+		}
+	} else if len(originalPath) > 15 {
+		timestamp := originalPath[len(originalPath)-15:]
+		if _, err := time.Parse("_20060102150405", timestamp); err == nil {
+			originalPath = originalPath[0 : len(originalPath)-15]
+		}
+	}
+
+	if err := removeReferencesForFile(strings.TrimSuffix(originalPath, filepath.Ext(originalPath))); err != nil {
+		log.Printf("Failed to remove references for permanently deleted file %s: %v", originalPath, err)
 	}
 
 	if info.IsDir() {
@@ -1014,6 +1237,9 @@ func emptyTrash(w http.ResponseWriter, r *http.Request) {
 	for _, d := range dir {
 		os.RemoveAll(filepath.Join(trashDir, d.Name()))
 	}
+	// After emptying trash, we should ideally clear all references from trashed items
+	// But without a record of what was in the trash, this is hard.
+	// For now, references will point to non-existent files which is acceptable.
 	w.WriteHeader(http.StatusOK)
 }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Button, Typography, Spin, notification, Breadcrumb, Dropdown } from 'antd';
+import { Button, Typography, Spin, notification, Breadcrumb, Dropdown, List } from 'antd';
 import {
     PictureOutlined,
     HomeOutlined,
@@ -15,7 +15,7 @@ import TrashView from './TrashView';
 import SettingsView from './SettingsView';
 
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 
 // Custom command for image upload
@@ -94,6 +94,18 @@ const CustomPre = ({ children, ...props }) => {
 
 const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
     const [isEditing, setIsEditing] = useState(false);
+    const { setEditorApi, setIsReferenceModalVisible } = notes;
+    
+    const referenceCommand = {
+        name: 'reference',
+        keyCommand: 'reference',
+        buttonProps: { 'aria-label': 'Insert reference' },
+        icon: <span style={{ fontSize: '16px', textAlign: 'center' }}>@</span>,
+        execute: (state, executeApi) => {
+            setEditorApi(() => executeApi);
+            setIsReferenceModalVisible(true);
+        },
+    };
 
     const {
         view,
@@ -128,6 +140,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
         setIsNewFolderModalVisible,
         setFolderToCreateIn,
         setNewFolderName,
+        backlinks,
     } = notes;
 
     useEffect(() => {
@@ -202,6 +215,37 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
         { key: 'settings', label: 'Settings', onClick: () => navigate('/settings') },
         { key: 'trash', label: 'Recycle Bin', onClick: () => navigate('/trash') },
     ];
+    
+    // Custom renderer for paragraphs to handle @mentions
+    const PTagRenderer = ({ children }) => {
+        const newChildren = React.Children.toArray(children).flatMap((child, index) => {
+            if (typeof child === 'string') {
+                const parts = child.split(/(@\([^)]+\))/g);
+                return parts.map((part, i) => {
+                    if (part.startsWith('@(') && part.endsWith(')')) {
+                        const docPath = part.substring(2, part.length - 1);
+                        const docName = docPath.includes('/') ? docPath.substring(docPath.lastIndexOf('/') + 1) : docPath;
+                        return (
+                            <a
+                                key={`${index}-${i}`}
+                                href={`/data/${encodePath(docPath)}`}
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    navigate(`/data/${encodePath(docPath)}`);
+                                }}
+                                className="internal-link"
+                            >
+                                @{docName.replace(/_/g, ' ')}
+                            </a>
+                        );
+                    }
+                    return part;
+                });
+            }
+            return child;
+        });
+        return <p>{newChildren}</p>;
+    };
 
 
     const renderMainContent = () => {
@@ -235,7 +279,8 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                                     commands={[
                                         ...commands.getCommands(),
                                         commands.divider,
-                                        imageUploadCommand
+                                        imageUploadCommand,
+                                        referenceCommand,
                                     ]}
                                 />
                             ) : (
@@ -244,8 +289,26 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                                         source={markdown}
                                         components={{
                                             pre: CustomPre,
+                                            p: PTagRenderer,
                                         }}
                                     />
+                                    {backlinks && backlinks.length > 0 && (
+                                        <div style={{ marginTop: '2rem', paddingTop: '1rem', borderTop: isDarkMode ? '1px solid #303030' : '1px solid #e8e8e8' }}>
+                                            <Title level={5}>Referenced by</Title>
+                                            <List
+                                                size="small"
+                                                dataSource={backlinks}
+                                                renderItem={item => (
+                                                    <List.Item>
+                                                        <a href={`/data/${encodePath(item)}`} onClick={(e) => {
+                                                            e.preventDefault();
+                                                            navigate(`/data/${encodePath(item)}`);
+                                                        }}><Text>{item.replace(/_/g, ' ')}</Text></a>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

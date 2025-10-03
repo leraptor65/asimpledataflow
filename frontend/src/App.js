@@ -3,6 +3,7 @@ import { Layout, ConfigProvider, theme, Grid } from 'antd';
 import Sidebar from './components/Sidebar';
 import NoteEditor from './components/NoteEditor';
 import { Modals } from './components/Modals';
+import { ReferenceModal } from './components/ReferenceModal';
 import useNotes from './hooks/useNotes';
 import useTheme from './hooks/useTheme';
 
@@ -53,6 +54,7 @@ function App() {
                     </Content>
                 </Layout>
                 <Modals notes={notes} />
+                <ReferenceModal notes={notes} />
             </Layout>
         </ConfigProvider>
     );

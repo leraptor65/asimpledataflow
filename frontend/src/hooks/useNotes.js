@@ -17,6 +17,9 @@ const useNotes = () => {
     const [selectedFolder, setSelectedFolder] = useState(null);
     const [trashedItems, setTrashedItems] = useState([]);
     const [fileContent, setFileContent] = useState(null);
+    const [backlinks, setBacklinks] = useState([]);
+    const [isReferenceModalVisible, setIsReferenceModalVisible] = useState(false);
+    const [editorApi, setEditorApi] = useState(null);
 
     const [conflictResults, setConflictResults] = useState(null);
     const [activityLogs, setActivityLogs] = useState('');
@@ -123,62 +126,12 @@ const useNotes = () => {
         return null;
     }, []);
 
-    const processPath = useCallback((path) => {
-        if (path === '/settings') {
-            setView('settings');
-            setSelectedDoc(null);
-            setSelectedFolder(null);
-        } else if (path === '/trash') {
-            getTrash();
-        } else if (path.startsWith('/data/')) {
-            const docId = decodePath(path.substring(6));
-            const item = findItemByPath(docId, documents);
-            if (item) {
-                if (item.type === 'folder') {
-                    setSelectedFolder(item);
-                    setView('folder');
-                    setSelectedDoc(null);
-                } else {
-                    fetchDocContent(docId, false);
-                }
-            } else {
-                 // It might be a file that exists but the tree isn't fully expanded/loaded
-                 // Or it could be a folder. Let fetchDocContent handle it.
-                 // The backend will return an error for a folder, which we'll handle.
-                fetchDocContent(docId, false);
-            }
-        } else {
-            setView('welcome');
-            setSelectedDoc(null);
-            setSelectedFolder(null);
-        }
-    }, [documents, findItemByPath]); // eslint-disable-line react-hooks/exhaustive-deps
-    
-    // Initial data fetch
-    useEffect(() => {
-        fetchDocs();
-        fetchLogs();
-    }, [fetchDocs, fetchLogs]);
-
-    // Handle routing based on URL
-    useEffect(() => {
-        const handleLocationChange = () => {
-            processPath(window.location.pathname);
-        };
-
-        window.addEventListener('popstate', handleLocationChange);
-        handleLocationChange(); // Process initial path
-
-        return () => {
-            window.removeEventListener('popstate', handleLocationChange);
-        };
-    }, [processPath]);
-
-    const fetchDocContent = async (id, pushState = true) => {
+    const fetchDocContent = useCallback(async (id, pushState = true) => {
         if (!id) return;
         try {
             setMarkdown('');
             setFileContent(null);
+            setBacklinks([]);
             setIsLoading(true);
 
             const response = await api.fetchDocumentContent(id);
@@ -200,16 +153,23 @@ const useNotes = () => {
                 const content = await response.text();
                 setMarkdown(content);
                 setView('document');
+
+                try {
+                    const backlinkData = await api.fetchBacklinks(id);
+                    setBacklinks(backlinkData || []);
+                } catch (e) {
+                    console.error("Could not fetch backlinks", e);
+                    setBacklinks([]);
+                }
             } else {
                 const content = await response.text();
                 setFileContent(content);
                 setView('text');
             }
         } catch (e) {
-            // Check if it's the specific "path is a directory" error from our backend
             if (e.message && e.message.includes('path is a directory')) {
                 const item = findItemByPath(id, documents);
-                if(item && item.type === 'folder') {
+                if (item && item.type === 'folder') {
                     setSelectedFolder(item);
                     setView('folder');
                     setSelectedDoc(null);
@@ -224,7 +184,56 @@ const useNotes = () => {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [documents, findItemByPath]);
+
+    const processPath = useCallback((path) => {
+        setBacklinks([]);
+        if (path === '/settings') {
+            setView('settings');
+            setSelectedDoc(null);
+            setSelectedFolder(null);
+        } else if (path === '/trash') {
+            getTrash();
+        } else if (path.startsWith('/data/')) {
+            const docId = decodePath(path.substring(6));
+            const item = findItemByPath(docId, documents);
+            if (item) {
+                if (item.type === 'folder') {
+                    setSelectedFolder(item);
+                    setView('folder');
+                    setSelectedDoc(null);
+                } else {
+                    fetchDocContent(docId, false);
+                }
+            } else {
+                fetchDocContent(docId, false);
+            }
+        } else {
+            setView('welcome');
+            setSelectedDoc(null);
+            setSelectedFolder(null);
+        }
+    }, [documents, findItemByPath, fetchDocContent]); // eslint-disable-line react-hooks/exhaustive-deps
+    
+    // Initial data fetch
+    useEffect(() => {
+        fetchDocs();
+        fetchLogs();
+    }, [fetchDocs, fetchLogs]);
+
+    // Handle routing based on URL
+    useEffect(() => {
+        const handleLocationChange = () => {
+            processPath(window.location.pathname);
+        };
+
+        window.addEventListener('popstate', handleLocationChange);
+        handleLocationChange(); // Process initial path
+
+        return () => {
+            window.removeEventListener('popstate', handleLocationChange);
+        };
+    }, [processPath]);
 
     const saveDoc = async () => {
         if (!selectedDoc) return;
@@ -235,6 +244,8 @@ const useNotes = () => {
                 placement: 'top',
             });
             fetchDocs();
+            const backlinkData = await api.fetchBacklinks(selectedDoc);
+            setBacklinks(backlinkData || []);
         } catch (e) {
             notification.error({
                 message: "Error saving document",
@@ -433,7 +444,7 @@ const useNotes = () => {
             getTrash();
             fetchDocs();
         } catch (e) {
-            notification.error({ message: "Error", description: e.message, placement: 'top' });
+            notification.error({ message: "Error restoring item", description: e.message, placement: 'top' });
         }
     };
 
@@ -520,6 +531,22 @@ const useNotes = () => {
         return filterItems(documents);
     }, [documents, searchQuery]);
 
+    const allFiles = useMemo(() => {
+        const files = [];
+        const collectFiles = (items) => {
+            for (const item of items) {
+                if (item.type === 'file') {
+                    files.push(item);
+                }
+                if (item.children) {
+                    collectFiles(item.children);
+                }
+            }
+        };
+        collectFiles(documents);
+        return files;
+    }, [documents]);
+
     return {
         documents,
         selectedDoc,
@@ -537,6 +564,12 @@ const useNotes = () => {
         setSelectedFolder,
         trashedItems,
         fileContent,
+        backlinks,
+        isReferenceModalVisible,
+        setIsReferenceModalVisible,
+        editorApi,
+        setEditorApi,
+        allFiles,
         isRenameModalVisible,
         setIsRenameModalVisible,
         isDeleteModalVisible,

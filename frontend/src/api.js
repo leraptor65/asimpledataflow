@@ -136,7 +136,8 @@ export const fetchTrash = async () => {
 export const restoreItemFromTrash = async (id) => {
     const response = await fetch(`${API_URL}/trash/restore/${encodeURLPath(id)}`, { method: 'PUT' });
     if (!response.ok) {
-        throw new Error('Could not restore item');
+        const errorText = await response.text();
+        throw new Error(`Could not restore item: ${errorText}`);
     }
 }
 
@@ -183,3 +184,12 @@ export const clearLogs = async () => {
     }
 };
 
+export const fetchBacklinks = async (id) => {
+    if (!id) return [];
+    const response = await fetch(`${API_URL}/references/${encodeURLPath(id)}`);
+    if (!response.ok) {
+        // It's okay if this fails, might not be a file with backlinks
+        return [];
+    }
+    return response.json();
+};
