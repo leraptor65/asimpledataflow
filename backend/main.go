@@ -372,6 +372,30 @@ func deleteImageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// sortChildrenRecursively sorts file system items so folders appear before files,
+// then alphabetically. It applies this sorting recursively to all children.
+func sortChildrenRecursively(children []FileSystemItem) {
+	if len(children) == 0 {
+		return
+	}
+
+	sort.SliceStable(children, func(i, j int) bool {
+		if children[i].Type == "folder" && children[j].Type == "file" {
+			return true
+		}
+		if children[i].Type == "file" && children[j].Type == "folder" {
+			return false
+		}
+		return children[i].Name < children[j].Name
+	})
+
+	for _, child := range children {
+		if child.Type == "folder" {
+			sortChildrenRecursively(child.Children)
+		}
+	}
+}
+
 func buildTree(basePath string) (FileSystemItem, error) {
 	root := FileSystemItem{
 		Name:     "Root",
@@ -439,16 +463,8 @@ func buildTree(basePath string) (FileSystemItem, error) {
 		return nil
 	})
 
-	// Sort children so files come before folders
-	sort.SliceStable(root.Children, func(i, j int) bool {
-		if root.Children[i].Type == "file" && root.Children[j].Type == "folder" {
-			return true
-		}
-		if root.Children[i].Type == "folder" && root.Children[j].Type == "file" {
-			return false
-		}
-		return root.Children[i].Name < root.Children[j].Name
-	})
+	// Recursively sort all children so folders come before files, then alphabetically.
+	sortChildrenRecursively(root.Children)
 
 	return root, err
 }
