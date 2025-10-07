@@ -160,6 +160,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
             {
                 title: <HomeOutlined />,
                 onClick: () => navigate('/'),
+                className: 'breadcrumb-link',
             },
             ...parts.map((part, index) => {
                 const fullPath = parts.slice(0, index + 1).join('/');
@@ -169,6 +170,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                 };
                  if (!isLast) {
                     item.onClick = () => navigate(`/data/${encodePath(fullPath)}`);
+                    item.className = 'breadcrumb-link';
                 }
                 return item;
             }),

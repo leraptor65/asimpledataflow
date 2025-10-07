@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layout, Input, Button, Tooltip, Menu, Typography } from 'antd';
+import { Layout, Input, Button, Tooltip, Menu, Typography, List } from 'antd';
 import {
     SearchOutlined,
     PlusOutlined,
@@ -7,6 +7,7 @@ import {
     SettingOutlined,
     MinusSquareOutlined,
     PlusSquareOutlined,
+    FileTextOutlined,
 } from '@ant-design/icons';
 import { TrashIcon } from '../icons';
 import FileTree from './FileTree';
@@ -19,7 +20,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
         documents,
         searchQuery,
         setSearchQuery,
-        filteredDocuments,
+        searchResults,
         setView,
         setCurrentFolder,
         setIsNewNoteModalVisible,
@@ -37,7 +38,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
         setIsMoveModalVisible,
         setExpandedKeys,
         expandedKeys,
-        encodePath
+        encodePath,
     } = notes;
 
     const navigate = (path) => {
@@ -131,6 +132,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
                                 prefix={<SearchOutlined />}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
+                                allowClear
                                 style={{ marginTop: '1rem' }}
                             />
                             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
@@ -145,26 +147,45 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
                     )}
                 </div>
                 <div className="file-tree-container" style={{ flex: '1 1 auto', overflowY: 'auto', overflowX: 'hidden', paddingRight: '8px', height: '100%' }}>
-                    {!isSidebarCollapsed && (
-                        <FileTree
-                            items={filteredDocuments}
-                            onSelect={(path) => navigate(`/data/${encodePath(path)}`)}
-                            onSelectFolder={(folder) => {
-                                setSelectedFolder(folder);
-                                setView('folder');
-                            }}
-                            onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); setIsRenameModalVisible(true); }}
-                            onDelete={(item) => { setItemToDelete(item); setIsDeleteModalVisible(true); }}
-                            onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); setIsNewNoteModalVisible(true); }}
-                            onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); setIsNewFolderModalVisible(true); }}
-                            onExportItem={(item) => { window.open(`/api/export/${encodePath(item.path)}`, '_blank'); }}
-                            selectedDoc={notes.selectedDoc}
-                            onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); setIsMoveModalVisible(true); }}
-                            expandedKeys={expandedKeys}
-                            setExpandedKeys={setExpandedKeys}
-                            encodePath={encodePath}
-                        />
-                    )}
+                    {!isSidebarCollapsed &&
+                        (searchQuery ? (
+                            <List
+                                dataSource={searchResults}
+                                renderItem={(item) => (
+                                    <List.Item
+                                        onClick={() => {
+                                            navigate(`/data/${encodePath(item.path)}`);
+                                            setSearchQuery(''); // Clear search after clicking
+                                        }}
+                                        style={{ cursor: 'pointer', padding: '8px 16px', color: isDarkMode ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.85)' }}
+                                        className="search-result-item"
+                                    >
+                                        <FileTextOutlined style={{ marginRight: 8 }} />
+                                        {item.path.replace(/_/g, ' ')}
+                                    </List.Item>
+                                )}
+                                size="small"
+                            />
+                        ) : (
+                            <FileTree
+                                items={documents}
+                                onSelect={(path) => navigate(`/data/${encodePath(path)}`)}
+                                onSelectFolder={(folder) => {
+                                    setSelectedFolder(folder);
+                                    setView('folder');
+                                }}
+                                onRename={(item) => { setItemToRename(item); setNewNoteName(item.name); setIsRenameModalVisible(true); }}
+                                onDelete={(item) => { setItemToDelete(item); setIsDeleteModalVisible(true); }}
+                                onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); setIsNewNoteModalVisible(true); }}
+                                onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); setIsNewFolderModalVisible(true); }}
+                                onExportItem={(item) => { window.open(`/api/export/${encodePath(item.path)}`, '_blank'); }}
+                                selectedDoc={notes.selectedDoc}
+                                onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); setIsMoveModalVisible(true); }}
+                                expandedKeys={expandedKeys}
+                                setExpandedKeys={setExpandedKeys}
+                                encodePath={encodePath}
+                            />
+                        ))}
                 </div>
                 <Menu
                     theme={isDarkMode ? 'dark' : 'light'}
@@ -178,4 +199,3 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
 };
 
 export default Sidebar;
-

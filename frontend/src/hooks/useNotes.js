@@ -505,32 +505,6 @@ const useNotes = () => {
         }
     };
 
-    const filteredDocuments = useMemo(() => {
-        if (!searchQuery) {
-            return documents;
-        }
-
-        const lowercasedQuery = searchQuery.toLowerCase();
-
-        const filterItems = (items) => {
-            return items.reduce((acc, item) => {
-                if (item.type === 'folder') {
-                    const filteredChildren = filterItems(item.children || []);
-                    if (filteredChildren.length > 0 || item.name.toLowerCase().includes(lowercasedQuery)) {
-                        acc.push({ ...item, children: filteredChildren });
-                    }
-                } else { // type is 'file'
-                    if (item.name.toLowerCase().includes(lowercasedQuery)) {
-                        acc.push(item);
-                    }
-                }
-                return acc;
-            }, []);
-        };
-
-        return filterItems(documents);
-    }, [documents, searchQuery]);
-
     const allFiles = useMemo(() => {
         const files = [];
         const collectFiles = (items) => {
@@ -547,6 +521,18 @@ const useNotes = () => {
         return files;
     }, [documents]);
 
+    const searchResults = useMemo(() => {
+        if (!searchQuery) {
+            return [];
+        }
+        const lowercasedQuery = searchQuery.toLowerCase();
+        // allFiles is a flat list of all file items.
+        return allFiles.filter(file =>
+            file.path.toLowerCase().replace(/_/g, ' ').includes(lowercasedQuery)
+        );
+    }, [allFiles, searchQuery]);
+
+
     return {
         documents,
         selectedDoc,
@@ -557,7 +543,7 @@ const useNotes = () => {
         isResolving,
         searchQuery,
         setSearchQuery,
-        filteredDocuments,
+        searchResults,
         view,
         setView,
         selectedFolder,
@@ -625,4 +611,3 @@ const useNotes = () => {
 };
 
 export default useNotes;
-

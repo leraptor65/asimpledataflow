@@ -151,3 +151,34 @@ body {
   color: #f0f0f0;
 }
 
+/* Styles for clickable breadcrumbs */
+.breadcrumb-link {
+  cursor: pointer;
+}
+
+.breadcrumb-link .ant-breadcrumb-link,
+.breadcrumb-link .anticon {
+  transition: all 0.2s;
+}
+
+.breadcrumb-link:hover .ant-breadcrumb-link,
+.breadcrumb-link:hover .anticon {
+  font-weight: 600;
+  color: #000000;
+}
+
+[data-color-mode="dark"] .breadcrumb-link:hover .ant-breadcrumb-link,
+[data-color-mode="dark"] .breadcrumb-link:hover .anticon {
+  color: #ffffff;
+}
+
+
+/* Styles for search results */
+.search-result-item:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .search-result-item:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
