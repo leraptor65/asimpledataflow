@@ -13,14 +13,16 @@ const { useBreakpoint } = Grid;
 function App() {
     const { isDarkMode, toggleTheme } = useTheme();
     const notes = useNotes();
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
     const screens = useBreakpoint();
 
     const isMobile = !screens.md;
 
-    // Automatically collapse the sidebar on mobile devices, and ensure it's expanded on desktop by default
+    // Automatically collapse the sidebar on mobile devices
     useEffect(() => {
-        setIsSidebarCollapsed(isMobile);
+        if (isMobile) {
+            setIsSidebarCollapsed(true);
+        }
     }, [isMobile]);
 
     // On mobile, the content should take up the full width.
@@ -61,4 +63,3 @@ function App() {
 }
 
 export default App;
-
