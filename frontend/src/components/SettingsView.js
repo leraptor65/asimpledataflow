@@ -1,6 +1,10 @@
 import React, { useEffect } from 'react';
-import { Button, Card, Switch, Typography, List, Empty, Space, Image, Tooltip, Modal } from 'antd';
-import { SyncOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { Button, Card, Switch, Typography, List, Empty, Space, Image, Tooltip, Modal, Dropdown, Menu } from 'antd';
+import { SyncOutlined, DeleteOutlined, ExclamationCircleOutlined, DownOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+
+dayjs.extend(relativeTime);
 
 const { Title, Text, Paragraph } = Typography;
 const { confirm } = Modal;
@@ -21,7 +25,11 @@ const SettingsView = ({
     images,
     fetchImages,
     onDeleteImage,
-    isMobile
+    isMobile,
+    sharedLinks,
+    fetchSharedLinks,
+    handleDeleteShareLink,
+    handleUpdateShareLink,
 }) => {
     const handleImportClick = () => {
         if (fileInputRef.current) {
@@ -32,10 +40,11 @@ const SettingsView = ({
     useEffect(() => {
         fetchLogs();
         fetchImages();
+        fetchSharedLinks();
         return () => {
             setConflictResults(null);
         };
-    }, [fetchLogs, fetchImages, setConflictResults]);
+    }, [fetchLogs, fetchImages, fetchSharedLinks, setConflictResults]);
 
     const showDeleteConfirm = (name) => {
         confirm({
@@ -51,6 +60,15 @@ const SettingsView = ({
         });
     };
 
+    const getExpirationMenu = (linkId) => (
+        <Menu onClick={({ key }) => handleUpdateShareLink(linkId, key)}>
+            <Menu.Item key="1h">1 Hour</Menu.Item>
+            <Menu.Item key="24h">24 Hours</Menu.Item>
+            <Menu.Item key="168h">7 Days</Menu.Item>
+            <Menu.Item key="never">Never</Menu.Item>
+        </Menu>
+    );
+
     return (
         <div>
             {!isMobile && <Title level={2} style={{ marginBottom: '1rem' }}>Settings</Title>}
@@ -60,6 +78,31 @@ const SettingsView = ({
                         <Text style={{ marginRight: '1rem' }}>Dark Mode</Text>
                         <Switch checked={isDarkMode} onChange={toggleTheme} />
                     </div>
+                </Card>
+                <Card title="Manage Shared Links">
+                    <List
+                        dataSource={sharedLinks || []}
+                        renderItem={item => (
+                            <List.Item
+                                actions={[
+                                    <Dropdown overlay={getExpirationMenu(item.id)} trigger={['click']}>
+                                        <Button size="small">
+                                            Change Expiry <DownOutlined />
+                                        </Button>
+                                    </Dropdown>,
+                                    <Tooltip title="Revoke Link">
+                                        <Button icon={<DeleteOutlined />} danger size="small" onClick={() => handleDeleteShareLink(item.id)} />
+                                    </Tooltip>
+                                ]}
+                            >
+                                <List.Item.Meta
+                                    title={<a href={`/share/${item.id}`} target="_blank" rel="noopener noreferrer">{item.documentPath.replace(/_/g, ' ')}</a>}
+                                    description={item.expiresAt ? `Expires ${dayjs(item.expiresAt).fromNow()}` : 'Never expires'}
+                                />
+                            </List.Item>
+                        )}
+                        locale={{ emptyText: <Empty description="No active shared links." /> }}
+                    />
                 </Card>
                 <Card title="Data Integrity">
                     <Paragraph>
@@ -148,3 +191,4 @@ const SettingsView = ({
 };
 
 export default SettingsView;
+

@@ -24,6 +24,9 @@ const useNotes = () => {
     const [conflictResults, setConflictResults] = useState(null);
     const [activityLogs, setActivityLogs] = useState('');
     const [images, setImages] = useState([]);
+    const [sharedLinks, setSharedLinks] = useState([]);
+    const [activeShareLink, setActiveShareLink] = useState(null);
+    const [isShareLinkModalVisible, setIsShareLinkModalVisible] = useState(false);
 
     const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
     const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
@@ -82,6 +85,20 @@ const useNotes = () => {
                 description: e.message,
                 placement: 'top',
             });
+        }
+    }, []);
+
+    const fetchSharedLinks = useCallback(async () => {
+        try {
+            const links = await api.fetchSharedLinks();
+            setSharedLinks(links || []);
+        } catch (e) {
+            notification.error({
+                message: "Could not fetch shared links",
+                description: e.message,
+                placement: 'top',
+            });
+            setSharedLinks([]);
         }
     }, []);
 
@@ -505,6 +522,48 @@ const useNotes = () => {
         }
     };
 
+    const handleCreateShareLink = async (item) => {
+        try {
+            const link = await api.createShareLink(item.path);
+            setActiveShareLink(link);
+            setIsShareLinkModalVisible(true);
+        } catch (e) {
+            notification.error({
+                message: "Error creating share link",
+                description: e.message,
+                placement: 'top',
+            });
+        }
+    };
+
+    const handleDeleteShareLink = async (id) => {
+        try {
+            await api.deleteShareLink(id);
+            notification.success({ message: 'Share link revoked.', placement: 'top' });
+            fetchSharedLinks();
+        } catch (e) {
+            notification.error({
+                message: "Error revoking share link",
+                description: e.message,
+                placement: 'top',
+            });
+        }
+    };
+
+    const handleUpdateShareLink = async (id, duration) => {
+        try {
+            await api.updateShareLink(id, duration);
+            notification.success({ message: 'Share link updated.', placement: 'top' });
+            fetchSharedLinks();
+        } catch (e) {
+            notification.error({
+                message: "Error updating share link",
+                description: e.message,
+                placement: 'top',
+            });
+        }
+    };
+
     const allFiles = useMemo(() => {
         const files = [];
         const collectFiles = (items) => {
@@ -607,7 +666,16 @@ const useNotes = () => {
         emptyTrash,
         encodePath,
         navigate,
+        sharedLinks,
+        fetchSharedLinks,
+        handleDeleteShareLink,
+        activeShareLink,
+        isShareLinkModalVisible,
+        setIsShareLinkModalVisible,
+        handleCreateShareLink,
+        handleUpdateShareLink,
     };
 };
 
 export default useNotes;
+

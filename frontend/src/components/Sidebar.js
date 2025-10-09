@@ -38,6 +38,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
         setIsMoveModalVisible,
         setExpandedKeys,
         expandedKeys,
+        handleCreateShareLink,
         encodePath,
     } = notes;
 
@@ -179,6 +180,7 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
                                 onNewNoteInFolder={(path) => { setCurrentFolder(path); setNewNoteName(''); setIsNewNoteModalVisible(true); }}
                                 onNewFolder={(path) => { setFolderToCreateIn(path); setNewFolderName(''); setIsNewFolderModalVisible(true); }}
                                 onExportItem={(item) => { window.open(`/api/export/${encodePath(item.path)}`, '_blank'); }}
+                                onShareItem={handleCreateShareLink}
                                 selectedDoc={notes.selectedDoc}
                                 onMoveItem={(item) => { setItemToMove(item); setDestinationFolder(''); setIsMoveModalVisible(true); }}
                                 expandedKeys={expandedKeys}

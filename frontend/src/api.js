@@ -193,3 +193,44 @@ export const fetchBacklinks = async (id) => {
     }
     return response.json();
 };
+
+// Share links
+export const createShareLink = async (path) => {
+    const response = await fetch(`${API_URL}/share/${encodeURLPath(path)}`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+    }
+    return response.json();
+};
+
+export const fetchSharedLinks = async () => {
+    const response = await fetch(`${API_URL}/share`);
+    if (!response.ok) {
+        throw new Error('Could not fetch shared links');
+    }
+    return response.json();
+};
+
+export const updateShareLink = async (id, duration) => {
+    const response = await fetch(`${API_URL}/share/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration }),
+    });
+    if (!response.ok) {
+        throw new Error('Could not update share link');
+    }
+};
+
+export const deleteShareLink = async (id) => {
+    const response = await fetch(`${API_URL}/share/${id}`, {
+        method: 'DELETE',
+    });
+    if (!response.ok) {
+        throw new Error('Could not delete share link');
+    }
+};
+

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Form, Input, Tree } from 'antd';
+import { Modal, Form, Input, Tree, Button, notification } from 'antd';
 import { FolderOutlined } from '@ant-design/icons';
 
 
@@ -19,6 +19,33 @@ const buildFolderTreeData = (items) => {
         }
         return node;
     });
+};
+
+export const ShareLinkModal = ({ visible, onCancel, shareUrl }) => {
+    const handleCopy = () => {
+        navigator.clipboard.writeText(shareUrl)
+            .then(() => notification.success({ message: 'Link copied to clipboard!', placement: 'top' }))
+            .catch(() => notification.error({ message: 'Failed to copy link.', placement: 'top' }));
+    };
+
+    return (
+        <Modal
+            title="Shareable Link"
+            open={visible}
+            onCancel={onCancel}
+            footer={[
+                <Button key="copy" type="primary" onClick={handleCopy}>
+                    Copy Link
+                </Button>,
+                <Button key="close" onClick={onCancel}>
+                    Close
+                </Button>,
+            ]}
+        >
+            <p>This link will expire in 24 hours by default. You can change this in the settings. Anyone with the link can view this document.</p>
+            <Input value={shareUrl} readOnly />
+        </Modal>
+    );
 };
 
 
@@ -48,7 +75,10 @@ export const Modals = ({ notes }) => {
         moveItem,
         setDestinationFolder,
         destinationFolder,
-        documents
+        documents,
+        isShareLinkModalVisible,
+        setIsShareLinkModalVisible,
+        activeShareLink,
     } = notes;
     return (
         <>
@@ -120,6 +150,12 @@ export const Modals = ({ notes }) => {
                     </Form.Item>
                 </Form>
             </Modal>
+            <ShareLinkModal
+                visible={isShareLinkModalVisible}
+                onCancel={() => setIsShareLinkModalVisible(false)}
+                shareUrl={activeShareLink ? `${window.location.origin}/share/${activeShareLink.id}`: ''}
+            />
         </>
     );
 };
+

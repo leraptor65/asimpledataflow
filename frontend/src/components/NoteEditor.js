@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Button, Typography, Spin, notification, Breadcrumb, Dropdown, List } from 'antd';
+import { Button, Typography, Spin, notification, Breadcrumb, Dropdown, List, Space } from 'antd';
 import {
     PictureOutlined,
     HomeOutlined,
@@ -141,6 +141,10 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
         setFolderToCreateIn,
         setNewFolderName,
         backlinks,
+        sharedLinks,
+        fetchSharedLinks,
+        handleDeleteShareLink,
+        handleCreateShareLink,
     } = notes;
 
     useEffect(() => {
@@ -266,9 +270,14 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                          {!isMobile && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, paddingBottom: '1rem' }}>
                                 {renderBreadcrumbs(selectedDoc)}
-                                <Button type="primary" onClick={handleEditSave}>
-                                    {isEditing ? 'Save' : 'Edit'}
-                                </Button>
+                                <Space>
+                                    <Button onClick={() => handleCreateShareLink({ path: selectedDoc })}>
+                                        Share
+                                    </Button>
+                                    <Button type="primary" onClick={handleEditSave}>
+                                        {isEditing ? 'Save' : 'Edit'}
+                                    </Button>
+                                </Space>
                             </div>
                         )}
                         <div style={{ flex: '1 1 auto', overflow: 'hidden' }}>
@@ -341,7 +350,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                     renderBreadcrumbs={!isMobile ? renderBreadcrumbs : () => null}
                     />;
             case 'trash':
-                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmpty={emptyTrash} isMobile={isMobile}/>;
+                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmptyTrash={emptyTrash} isMobile={isMobile}/>;
             case 'settings':
                 return <SettingsView
                     onImport={importFile}
@@ -360,6 +369,9 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                     fetchImages={fetchImages}
                     onDeleteImage={handleDeleteImage}
                     isMobile={isMobile}
+                    sharedLinks={sharedLinks}
+                    fetchSharedLinks={fetchSharedLinks}
+                    handleDeleteShareLink={handleDeleteShareLink}
                 />;
             case 'welcome':
             default:

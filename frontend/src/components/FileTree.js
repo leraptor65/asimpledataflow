@@ -1,8 +1,8 @@
 import React, { useMemo, useEffect } from 'react';
 import { Tree, Button, Dropdown, Space } from 'antd';
-import { FolderOutlined, MoreOutlined, CaretDownOutlined, CaretRightOutlined, MinusOutlined } from '@ant-design/icons';
+import { FolderOutlined, MoreOutlined, CaretDownOutlined, CaretRightOutlined, MinusOutlined, ShareAltOutlined } from '@ant-design/icons';
 
-const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem }) => {
+const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem, onShareItem }) => {
     return items.map(item => {
         const menuItems = [
             ...(item.type === 'folder'
@@ -10,7 +10,7 @@ const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFold
                     { key: 'new-note', label: 'New Note', onClick: (e) => { e.domEvent.stopPropagation(); onNewNoteInFolder(item.path); } },
                     { key: 'new-folder', label: 'New Folder', onClick: (e) => { e.domEvent.stopPropagation(); onNewFolder(item.path); } },
                 ]
-                : []),
+                : [{ key: 'share', label: 'Share', onClick: (e) => { e.domEvent.stopPropagation(); onShareItem(item); }, icon: <ShareAltOutlined /> }]),
             { key: 'rename', label: 'Rename', onClick: (e) => { e.domEvent.stopPropagation(); onRename(item); } },
             { key: 'delete', label: 'Delete', onClick: (e) => { e.domEvent.stopPropagation(); onDelete(item); } },
             { key: 'move', label: 'Move', onClick: (e) => { e.domEvent.stopPropagation(); onMoveItem(item); } },
@@ -38,16 +38,16 @@ const buildTreeData = ({ items, onRename, onDelete, onNewNoteInFolder, onNewFold
         };
 
         if (item.children && item.children.length > 0) {
-            node.children = buildTreeData({ items: item.children, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem });
+            node.children = buildTreeData({ items: item.children, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem, onShareItem });
         }
 
         return node;
     });
 };
 
-const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, selectedDoc, onSelectFolder, onMoveItem, expandedKeys, setExpandedKeys, encodePath }) => {
+const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, selectedDoc, onSelectFolder, onMoveItem, onShareItem, expandedKeys, setExpandedKeys, encodePath }) => {
 
-    const treeData = useMemo(() => buildTreeData({ items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem }), [items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem]);
+    const treeData = useMemo(() => buildTreeData({ items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem, onShareItem }), [items, onRename, onDelete, onNewNoteInFolder, onNewFolder, onExportItem, onMoveItem, onShareItem]);
 
     useEffect(() => {
         if (selectedDoc) {
@@ -114,4 +114,3 @@ const FileTree = ({ items, onSelect, onRename, onDelete, onNewNoteInFolder, onNe
 };
 
 export default FileTree;
-

@@ -3,6 +3,8 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +27,7 @@ var imagesDir = "/app/data/.images"
 var logsDir = "/app/data/.logs"
 var logFile = filepath.Join(logsDir, "activity.log")
 var referencesFile = filepath.Join(dataDir, ".references.json")
+var shareLinksFile = filepath.Join(dataDir, ".share_links.json")
 var referenceRegex = regexp.MustCompile(`@\(([^)]+)\)`)
 
 // FileSystemItem represents a file or folder in the directory tree.
@@ -47,8 +50,77 @@ type ImageFile struct {
 	URL  string `json:"url"`
 }
 
+type ShareLink struct {
+	ID           string     `json:"id"`
+	DocumentPath string     `json:"documentPath"`
+	ExpiresAt    *time.Time `json:"expiresAt"`
+}
+
+type UpdateShareLinkRequest struct {
+	Duration string `json:"duration"` // e.g., "1h", "24h", "168h", "never"
+}
+
 // References maps a document path to a list of paths that reference it.
 type References map[string][]string
+
+// --- Share Link Management ---
+
+func loadShareLinks() ([]ShareLink, error) {
+	var links []ShareLink
+	if _, err := os.Stat(shareLinksFile); os.IsNotExist(err) {
+		return links, nil
+	}
+	data, err := os.ReadFile(shareLinksFile)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return links, nil
+	}
+	err = json.Unmarshal(data, &links)
+	return links, err
+}
+
+func saveShareLinks(links []ShareLink) error {
+	data, err := json.MarshalIndent(links, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(shareLinksFile, data, 0644)
+}
+
+func generateRandomID(length int) (string, error) {
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+func cleanupExpiredLinks() {
+	for {
+		time.Sleep(1 * time.Hour)
+		links, err := loadShareLinks()
+		if err != nil {
+			log.Printf("Error loading share links for cleanup: %v", err)
+			continue
+		}
+
+		var activeLinks []ShareLink
+		now := time.Now()
+		for _, link := range links {
+			if link.ExpiresAt == nil || now.Before(*link.ExpiresAt) {
+				activeLinks = append(activeLinks, link)
+			}
+		}
+
+		if len(activeLinks) < len(links) {
+			if err := saveShareLinks(activeLinks); err != nil {
+				log.Printf("Error saving cleaned share links: %v", err)
+			}
+		}
+	}
+}
 
 // --- Reference Management ---
 
@@ -196,7 +268,7 @@ func updateReferencesForRename(oldPath, newPath string, isDir bool) error {
 		}
 	}
 
-	return saveReferences(newRefs)
+	return saveReferences(refs)
 }
 
 // Helper function to decode URL path segments (replace underscores with spaces).
@@ -356,9 +428,12 @@ func main() {
 		log.Fatalf("failed to create logs directory: %v", err)
 	}
 
+	// Start background task to clean up expired links
+	go cleanupExpiredLinks()
+
 	r := mux.NewRouter()
 
-	// API routes must be registered before the SPA handler
+	// API routes
 	api := r.PathPrefix("/api/").Subrouter()
 	api.HandleFunc("/documents/{id:.*}/rename", renameDocumentOrFolder).Methods("PUT")
 	api.HandleFunc("/documents/{id:.*}", moveItemToTrash).Methods("DELETE")
@@ -379,31 +454,287 @@ func main() {
 	api.HandleFunc("/logs", getLogsHandler).Methods("GET")
 	api.HandleFunc("/logs", clearLogsHandler).Methods("DELETE")
 	api.HandleFunc("/references/{id:.*}", getReferencesHandler).Methods("GET")
+	api.HandleFunc("/share/{id:.*}", createShareLinkHandler).Methods("POST")
+	api.HandleFunc("/share", getShareLinksHandler).Methods("GET")
+	api.HandleFunc("/share/{id}", updateShareLinkHandler).Methods("PUT")
+	api.HandleFunc("/share/{id}", deleteShareLinkHandler).Methods("DELETE")
 
-	// Serve static assets for images
+	// Public routes
+	r.HandleFunc("/share/{id}", viewShareLinkHandler).Methods("GET")
 	r.PathPrefix("/images/").Handler(http.StripPrefix("/images/", http.FileServer(http.Dir(imagesDir))))
 
-	// SPA Handler: Serves the React app and handles client-side routing
-	// This should be the last handler
-	r.PathPrefix("/").Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		staticPath := "/app/frontend/build"
-		indexPath := "index.html"
+	// SPA static file handler - this will serve js, css, etc.
+	staticFileServer := http.FileServer(http.Dir("/app/frontend/build"))
+	r.PathPrefix("/static/").Handler(staticFileServer)
+	r.Handle("/favicon.ico", staticFileServer)
+	r.Handle("/manifest.json", staticFileServer)
+	r.Handle("/robots.txt", staticFileServer)
+	r.Handle("/logo192.png", staticFileServer)
+	r.Handle("/logo512.png", staticFileServer)
 
-		// Check if the file exists in the static path
-		filePath := filepath.Join(staticPath, r.URL.Path)
-		_, err := os.Stat(filePath)
-		if os.IsNotExist(err) {
-			// If the file does not exist, serve the index.html
-			http.ServeFile(w, r, filepath.Join(staticPath, indexPath))
-			return
-		}
-
-		// Otherwise, serve the static file
-		http.FileServer(http.Dir(staticPath)).ServeHTTP(w, r)
-	}))
+	// SPA catch-all handler for client-side routing.
+	// This MUST be the last route defined.
+	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "/app/frontend/build/index.html")
+	})
 
 	log.Printf("A Simple Data Flow server listening on port 8000...")
 	log.Fatal(http.ListenAndServe(":8000", r))
+}
+
+const sharePageTemplate = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>%s</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f9f9f9; }
+        .container { max-width: 800px; margin: 2rem auto; padding: 2rem; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background-color: #fff; }
+        h1, h2, h3 { border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+        code { background-color: #f0f0f0; padding: 2px 4px; border-radius: 4px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace; }
+        pre { background-color: #f0f0f0; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+        pre code { background-color: transparent; padding: 0; }
+        blockquote { border-left: 4px solid #ddd; padding-left: 1rem; color: #666; }
+        img { max-width: 100%%; height: auto; }
+		table { border-collapse: collapse; width: 100%%; }
+		th, td { border: 1px solid #ccc; padding: 8px 13px; }
+		th { font-weight: bold; background-color: #f7f7f7; }
+    </style>
+</head>
+<body>
+    <div class="container" id="content"></div>
+    <textarea id="markdown-content" style="display:none;">%s</textarea>
+    <script>
+        document.getElementById('content').innerHTML = marked.parse(document.getElementById('markdown-content').value);
+    </script>
+</body>
+</html>
+`
+
+func viewShareLinkHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	linkID := vars["id"]
+
+	links, err := loadShareLinks()
+	if err != nil {
+		http.Error(w, "Invalid link", http.StatusInternalServerError)
+		return
+	}
+
+	var targetLink *ShareLink
+	for i := range links {
+		if links[i].ID == linkID {
+			targetLink = &links[i]
+			break
+		}
+	}
+
+	if targetLink == nil {
+		http.Error(w, "Link not found", http.StatusNotFound)
+		return
+	}
+
+	if targetLink.ExpiresAt != nil && time.Now().After(*targetLink.ExpiresAt) {
+		http.Error(w, "Link has expired", http.StatusForbidden)
+		return
+	}
+
+	// This part is very similar to getDocument
+	filePath := filepath.Join(dataDir, targetLink.DocumentPath)
+	var foundPath string
+	extensions := []string{".md", ".txt"} // Only share text-based files for now
+	for _, ext := range extensions {
+		if _, err := os.Stat(filePath + ext); err == nil {
+			foundPath = filePath + ext
+			break
+		}
+	}
+
+	if foundPath == "" {
+		http.Error(w, "Shared document not found", http.StatusNotFound)
+		return
+	}
+
+	content, err := os.ReadFile(foundPath)
+	if err != nil {
+		http.Error(w, "Could not read shared document", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Use backticks for multi-line string in Go
+	fmt.Fprintf(w, sharePageTemplate, filepath.Base(targetLink.DocumentPath), string(content))
+}
+
+func createShareLinkHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	docID := decodePath(vars["id"])
+
+	// Ensure the document exists
+	filePath := filepath.Join(dataDir, docID)
+	found := false
+	extensions := []string{".md", ".txt"} // Only sharing text-based files for now
+	for _, ext := range extensions {
+		if _, err := os.Stat(filePath + ext); err == nil {
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "Document not found", http.StatusNotFound)
+		return
+	}
+
+	links, err := loadShareLinks()
+	if err != nil {
+		http.Error(w, "Could not load share links", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if an active link already exists for this document
+	now := time.Now()
+	for _, link := range links {
+		if link.DocumentPath == docID && (link.ExpiresAt == nil || now.Before(*link.ExpiresAt)) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(link)
+			return // Return existing link
+		}
+	}
+
+	// If no active link found, create a new one with 24h expiration
+	id, err := generateRandomID(16)
+	if err != nil {
+		http.Error(w, "Could not generate link ID", http.StatusInternalServerError)
+		return
+	}
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+	newLink := ShareLink{
+		ID:           id,
+		DocumentPath: docID,
+		ExpiresAt:    &expiresAt,
+	}
+
+	links = append(links, newLink)
+	if err := saveShareLinks(links); err != nil {
+		http.Error(w, "Could not save share link", http.StatusInternalServerError)
+		return
+	}
+
+	logActivity(fmt.Sprintf("SHARE: Created share link for '%s'", docID))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(newLink)
+}
+
+func getShareLinksHandler(w http.ResponseWriter, r *http.Request) {
+	links, err := loadShareLinks()
+	if err != nil {
+		http.Error(w, "Could not load share links", http.StatusInternalServerError)
+		return
+	}
+
+	var activeLinks []ShareLink
+	now := time.Now()
+	for _, link := range links {
+		if link.ExpiresAt == nil || now.Before(*link.ExpiresAt) {
+			activeLinks = append(activeLinks, link)
+		}
+	}
+
+	if activeLinks == nil {
+		activeLinks = []ShareLink{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(activeLinks)
+}
+
+func updateShareLinkHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	linkID := vars["id"]
+
+	var req UpdateShareLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	links, err := loadShareLinks()
+	if err != nil {
+		http.Error(w, "Could not load share links", http.StatusInternalServerError)
+		return
+	}
+
+	found := false
+	for i := range links {
+		if links[i].ID == linkID {
+			found = true
+			if req.Duration == "never" {
+				links[i].ExpiresAt = nil
+			} else {
+				duration, err := time.ParseDuration(req.Duration)
+				if err != nil {
+					http.Error(w, "Invalid duration format", http.StatusBadRequest)
+					return
+				}
+				newExpiry := time.Now().Add(duration)
+				links[i].ExpiresAt = &newExpiry
+			}
+			break
+		}
+	}
+
+	if !found {
+		http.Error(w, "Link not found", http.StatusNotFound)
+		return
+	}
+
+	if err := saveShareLinks(links); err != nil {
+		http.Error(w, "Could not update share links", http.StatusInternalServerError)
+		return
+	}
+
+	logActivity(fmt.Sprintf("SHARE: Updated expiration for link ID '%s'", linkID))
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func deleteShareLinkHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	linkID := vars["id"]
+
+	links, err := loadShareLinks()
+	if err != nil {
+		http.Error(w, "Could not load share links", http.StatusInternalServerError)
+		return
+	}
+
+	var updatedLinks []ShareLink
+	var foundLink ShareLink
+	for _, link := range links {
+		if link.ID != linkID {
+			updatedLinks = append(updatedLinks, link)
+		} else {
+			foundLink = link
+		}
+	}
+
+	if len(updatedLinks) == len(links) {
+		http.Error(w, "Link not found", http.StatusNotFound)
+		return
+	}
+
+	if err := saveShareLinks(updatedLinks); err != nil {
+		http.Error(w, "Could not update share links", http.StatusInternalServerError)
+		return
+	}
+
+	logActivity(fmt.Sprintf("SHARE: Revoked share link for '%s'", foundLink.DocumentPath))
+	w.WriteHeader(http.StatusOK)
 }
 
 func getReferencesHandler(w http.ResponseWriter, r *http.Request) {
