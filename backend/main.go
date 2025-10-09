@@ -495,13 +495,19 @@ const sharePageTemplate = `
         .container { max-width: 800px; margin: 2rem auto; padding: 2rem; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background-color: #fff; }
         h1, h2, h3 { border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
         code { background-color: #f0f0f0; padding: 2px 4px; border-radius: 4px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace; }
-        pre { background-color: #f0f0f0; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+        pre { position: relative; background-color: #f0f0f0; padding: 1rem; border-radius: 6px; overflow-x: auto; }
         pre code { background-color: transparent; padding: 0; }
         blockquote { border-left: 4px solid #ddd; padding-left: 1rem; color: #666; }
         img { max-width: 100%%; height: auto; }
 		table { border-collapse: collapse; width: 100%%; }
 		th, td { border: 1px solid #ccc; padding: 8px 13px; }
-		th { font-weight: bold; background-color: #f7f7f7; }
+        th { font-weight: bold; background-color: #f7f7f7; }
+        .code-block-wrapper { position: relative; margin-bottom: 1rem; }
+        .code-block-header { display: flex; justify-content: space-between; align-items: center; background-color: #e0e0e0; padding: 4px 8px; border-top-left-radius: 4px; border-top-right-radius: 4px; }
+        .code-block-lang { font-size: 0.8em; color: #555; font-family: monospace; }
+        .code-block-copy-btn { background-color: #d0d0d0; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; font-size: 0.8em; padding: 2px 8px; }
+        .code-block-copy-btn:hover { background-color: #c0c0c0; }
+        pre { margin-top: 0 !important; border-top-left-radius: 0 !important; border-top-right-radius: 0 !important; }
     </style>
 </head>
 <body>
@@ -509,6 +515,45 @@ const sharePageTemplate = `
     <textarea id="markdown-content" style="display:none;">%s</textarea>
     <script>
         document.getElementById('content').innerHTML = marked.parse(document.getElementById('markdown-content').value);
+        
+        // Add copy buttons to code blocks
+        document.addEventListener('DOMContentLoaded', () => {
+            const pres = document.querySelectorAll('pre');
+            pres.forEach(pre => {
+                const code = pre.querySelector('code');
+                if (!code) return;
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'code-block-wrapper';
+                
+                const header = document.createElement('div');
+                header.className = 'code-block-header';
+                
+                const langSpan = document.createElement('span');
+                langSpan.className = 'code-block-lang';
+                const langMatch = code.className.match(/language-(\w+)/);
+                langSpan.innerText = langMatch ? langMatch[1] : 'text';
+
+                const copyButton = document.createElement('button');
+                copyButton.className = 'code-block-copy-btn';
+                copyButton.innerText = 'Copy';
+                copyButton.addEventListener('click', () => {
+                    navigator.clipboard.writeText(code.innerText).then(() => {
+                        copyButton.innerText = 'Copied!';
+                        setTimeout(() => { copyButton.innerText = 'Copy'; }, 2000);
+                    }).catch(() => {
+                        copyButton.innerText = 'Failed!';
+                    });
+                });
+                
+                header.appendChild(langSpan);
+                header.appendChild(copyButton);
+                
+                pre.parentNode.insertBefore(wrapper, pre);
+                wrapper.appendChild(header);
+                wrapper.appendChild(pre);
+            });
+        });
     </script>
 </body>
 </html>
@@ -637,16 +682,12 @@ func getShareLinksHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var activeLinks []ShareLink
+	activeLinks := []ShareLink{} // Initialize as an empty slice, not nil
 	now := time.Now()
 	for _, link := range links {
 		if link.ExpiresAt == nil || now.Before(*link.ExpiresAt) {
 			activeLinks = append(activeLinks, link)
 		}
-	}
-
-	if activeLinks == nil {
-		activeLinks = []ShareLink{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
