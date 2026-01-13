@@ -117,7 +117,7 @@ const SettingsView = ({
                                 <List
                                     header={<Text strong>Renamed Items:</Text>}
                                     bordered
-                                    dataSource={conflictResults}
+                                    dataSource={conflictResults || []}
                                     renderItem={item => (
                                         <List.Item>
                                             <Text type="secondary">{item.oldPath}</Text>
@@ -149,7 +149,7 @@ const SettingsView = ({
                 <Card title="Image Management">
                     <List
                         grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 4, xl: 6, xxl: 8 }}
-                        dataSource={images}
+                        dataSource={images || []}
                         renderItem={item => (
                             <List.Item>
                                 <Card

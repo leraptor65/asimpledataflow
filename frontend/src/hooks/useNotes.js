@@ -231,7 +231,7 @@ const useNotes = () => {
             setSelectedFolder(null);
         }
     }, [documents, findItemByPath, fetchDocContent]); // eslint-disable-line react-hooks/exhaustive-deps
-    
+
     // Initial data fetch
     useEffect(() => {
         fetchDocs();
@@ -252,23 +252,29 @@ const useNotes = () => {
         };
     }, [processPath]);
 
-    const saveDoc = async () => {
+    const saveDoc = async (silent = false) => {
         if (!selectedDoc) return;
         try {
             await api.saveDocument(selectedDoc, markdown);
-            notification.success({
-                message: "Document saved.",
-                placement: 'top',
-            });
-            fetchDocs();
+            if (!silent) {
+                notification.success({
+                    message: "Document saved.",
+                    placement: 'top',
+                });
+                fetchDocs(); // Only refresh list on manual save to avoid UI flicker
+            }
             const backlinkData = await api.fetchBacklinks(selectedDoc);
             setBacklinks(backlinkData || []);
         } catch (e) {
-            notification.error({
-                message: "Error saving document",
-                description: e.message,
-                placement: 'top',
-            });
+            if (!silent) {
+                notification.error({
+                    message: "Error saving document",
+                    description: e.message,
+                    placement: 'top',
+                });
+            } else {
+                console.error("Auto-save failed:", e);
+            }
         }
     };
 

@@ -79,12 +79,36 @@ export const Modals = ({ notes }) => {
         isShareLinkModalVisible,
         setIsShareLinkModalVisible,
         activeShareLink,
+        setFolderToCreateIn,
+        folderToCreateIn,
     } = notes;
     return (
         <>
             <Modal title="Create New Note" open={isNewNoteModalVisible} onOk={createNote} onCancel={() => setIsNewNoteModalVisible(false)}>
-                <Form>
-                    <Form.Item label="Note name">
+                <Form layout="vertical">
+                    <Form.Item label="Save Location (Folder)" help="Select a folder or leave empty for root. You can also type a path (e.g. 'Projects/Drafts').">
+                        <Tree
+                            treeData={[
+                                { title: 'Root', key: '', icon: <FolderOutlined /> },
+                                ...buildFolderTreeData(documents)
+                            ]}
+                            onSelect={(selectedKeys) => {
+                                setFolderToCreateIn(selectedKeys[0] || '');
+                            }}
+                            selectedKeys={folderToCreateIn ? [folderToCreateIn] : ['']}
+                            showIcon
+                            blockNode
+                            height={200}
+                        />
+                        <div style={{ marginTop: '8px' }}>
+                            <Input
+                                placeholder="Or type path..."
+                                value={folderToCreateIn}
+                                onChange={(e) => setFolderToCreateIn(e.target.value)}
+                            />
+                        </div>
+                    </Form.Item>
+                    <Form.Item label="Note Name">
                         <Input
                             placeholder="note-name"
                             value={newNoteName}
@@ -120,8 +144,30 @@ export const Modals = ({ notes }) => {
             </Modal>
 
             <Modal title="Create New Folder" open={isNewFolderModalVisible} onOk={createFolder} onCancel={() => setIsNewFolderModalVisible(false)}>
-                <Form>
-                    <Form.Item label="Folder name">
+                <Form layout="vertical">
+                    <Form.Item label="Parent Folder" help="Select a parent folder. Recursive paths supported.">
+                        <Tree
+                            treeData={[
+                                { title: 'Root', key: '', icon: <FolderOutlined /> },
+                                ...buildFolderTreeData(documents)
+                            ]}
+                            onSelect={(selectedKeys) => {
+                                setFolderToCreateIn(selectedKeys[0] || '');
+                            }}
+                            selectedKeys={folderToCreateIn ? [folderToCreateIn] : ['']}
+                            showIcon
+                            blockNode
+                            height={200}
+                        />
+                        <div style={{ marginTop: '8px' }}>
+                            <Input
+                                placeholder="Or type path..."
+                                value={folderToCreateIn}
+                                onChange={(e) => setFolderToCreateIn(e.target.value)}
+                            />
+                        </div>
+                    </Form.Item>
+                    <Form.Item label="New Folder Name">
                         <Input
                             placeholder="folder-name"
                             value={newFolderName}
@@ -153,7 +199,7 @@ export const Modals = ({ notes }) => {
             <ShareLinkModal
                 visible={isShareLinkModalVisible}
                 onCancel={() => setIsShareLinkModalVisible(false)}
-                shareUrl={activeShareLink ? `${window.location.origin}/share/${activeShareLink.id}`: ''}
+                shareUrl={activeShareLink ? `${window.location.origin}/share/${activeShareLink.id}` : ''}
             />
         </>
     );

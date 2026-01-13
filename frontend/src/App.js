@@ -33,13 +33,29 @@ function App() {
         <ConfigProvider
             theme={{
                 algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
+                token: {
+                    colorPrimary: '#1a73e8', // Google Blue
+                    colorLink: '#1a73e8',
+                    borderRadius: 8,
+                    colorBgContainer: isDarkMode ? '#1e1f20' : '#ffffff', // Surface colors
+                    colorBgLayout: isDarkMode ? '#131314' : '#f0f4f9', // Background colors
+                },
+                components: {
+                    Layout: {
+                        siderBg: isDarkMode ? '#1e1f20' : '#f0f4f9',
+                        bodyBg: isDarkMode ? '#131314' : '#ffffff',
+                    },
+                    Menu: {
+                        itemBg: 'transparent',
+                    }
+                }
             }}
         >
-            <Layout style={{ minHeight: '100vh', flexDirection: 'row' }}>
+            <Layout style={{ minHeight: '100vh', flexDirection: 'row' }} data-color-mode={isDarkMode ? 'dark' : 'light'}>
                 {!isMobile && (
                     <Sidebar
                         notes={notes}
-                        isSidebarCollapsed={isSidebarCollapsed}
+                        isSidebarCollapsed={isSidebarCollapsed} // Ensure prop name matches Sidebar definition
                         setIsSidebarCollapsed={setIsSidebarCollapsed}
                         toggleTheme={toggleTheme}
                         isDarkMode={isDarkMode}

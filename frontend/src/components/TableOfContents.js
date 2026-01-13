@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Empty, Space, Typography } from 'antd';
+import { Card, Empty, Space, Typography, List } from 'antd';
 import { FolderOutlined, FileTextOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -24,20 +24,22 @@ const TableOfContents = ({ folder, onSelect, renderBreadcrumbs }) => {
     return (
         <div>
             {renderBreadcrumbs(folder.path)}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
-                {sortedItems.map((item) => (
-                    <Card
-                        key={item.path}
-                        hoverable
+            <List
+                style={{ marginTop: '1rem', background: 'transparent' }}
+                dataSource={sortedItems}
+                renderItem={(item) => (
+                    <List.Item
+                        style={{ padding: '12px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)', transition: 'background-color 0.2s' }}
+                        className="search-result-item"
                         onClick={() => onSelect(item)}
                     >
-                        <Space>
-                            {item.type === 'folder' ? <FolderOutlined /> : <FileTextOutlined />}
-                            <Text>{item.name.replace(/\.md$/, '')}</Text>
-                        </Space>
-                    </Card>
-                ))}
-            </div>
+                        <List.Item.Meta
+                            avatar={item.type === 'folder' ? <FolderOutlined style={{ fontSize: '20px', color: '#1a73e8' }} /> : <FileTextOutlined style={{ fontSize: '20px', color: '#5f6368' }} />}
+                            title={<Text style={{ fontSize: '16px' }}>{item.name.replace(/\.md$/, '')}</Text>}
+                        />
+                    </List.Item>
+                )}
+            />
         </div>
     );
 };

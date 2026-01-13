@@ -1118,6 +1118,33 @@ func saveDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- Version Control Start ---
+	// Create .versions directory if it doesn't exist
+	versionsDir := filepath.Join(dataDir, ".versions")
+	if err := os.MkdirAll(versionsDir, 0755); err != nil {
+		log.Printf("Failed to create versions directory: %v", err)
+		// Proceed without versioning if it fails
+	} else {
+		// If the file already exists, back it up
+		if _, err := os.Stat(finalPath); err == nil {
+			// Read existing content
+			existingContent, err := os.ReadFile(finalPath)
+			if err == nil {
+				// Create a backup file: .versions/filename.md.YYYYMMDDHHMMSS
+				timestamp := time.Now().Format("20060102150405")
+				backupName := fmt.Sprintf("%s.%s", filepath.Base(finalPath), timestamp)
+				backupPath := filepath.Join(versionsDir, backupName)
+				
+				if err := os.WriteFile(backupPath, existingContent, 0644); err != nil {
+					log.Printf("Failed to create backup version: %v", err)
+				} else {
+                    logActivity(fmt.Sprintf("VERSION: Created backup version '%s'", backupName))
+                }
+			}
+		}
+	}
+	// --- Version Control End ---
+
 	if err := os.WriteFile(finalPath, content, 0644); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

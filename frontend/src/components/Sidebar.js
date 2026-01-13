@@ -96,20 +96,29 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
             }}
         >
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                <div style={{ padding: '0.5rem', flexShrink: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: isSidebarCollapsed ? 'center' : 'space-between' }}>
-                        {!isSidebarCollapsed && (
-                            <Title level={4} style={{ color: isDarkMode ? '#fff' : 'rgba(0, 0, 0, 0.85)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                A Simple Data Flow
-                            </Title>
-                        )}
-                        <Button
-                            icon={<HomeOutlined />}
-                            onClick={() => navigate('/')}
-                            type="text"
-                            style={{ color: isDarkMode ? '#fff' : 'rgba(0, 0, 0, 0.85)' }}
-                        />
-                    </div>
+                <div style={{ padding: '0.5rem', flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                    {!isSidebarCollapsed && (
+                        <Title level={4} style={{
+                            color: isDarkMode ? '#fff' : 'rgba(0, 0, 0, 0.85)',
+                            margin: 0,
+                            textAlign: 'center',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            maxWidth: '100%'
+                        }}>
+                            A Simple Data Flow
+                        </Title>
+                    )}
+                    <Button
+                        icon={<HomeOutlined />}
+                        onClick={() => navigate('/')}
+                        type="text"
+                        style={{
+                            color: isDarkMode ? '#fff' : 'rgba(0, 0, 0, 0.85)',
+                            fontSize: '18px'
+                        }}
+                    />
                     {!isSidebarCollapsed && (
                         <div style={{ marginTop: '1rem' }}>
                             <div style={{ display: 'flex', gap: '8px' }}>

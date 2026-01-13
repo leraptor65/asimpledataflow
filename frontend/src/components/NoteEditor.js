@@ -94,20 +94,9 @@ const CustomPre = ({ children, ...props }) => {
 
 const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
     const [isEditing, setIsEditing] = useState(false);
-    const { setEditorApi, setIsReferenceModalVisible } = notes;
-    
-    const referenceCommand = {
-        name: 'reference',
-        keyCommand: 'reference',
-        buttonProps: { 'aria-label': 'Insert reference' },
-        icon: <span style={{ fontSize: '16px', textAlign: 'center' }}>@</span>,
-        execute: (state, executeApi) => {
-            setEditorApi(() => executeApi);
-            setIsReferenceModalVisible(true);
-        },
-    };
-
     const {
+        setEditorApi,
+        setIsReferenceModalVisible,
         view,
         selectedDoc,
         markdown,
@@ -145,34 +134,68 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
         fetchSharedLinks,
         handleDeleteShareLink,
         handleCreateShareLink,
+        handleUpdateShareLink,
     } = notes;
 
+    // Auto-save logic
+    const markdownRef = useRef(markdown);
+
+    // Keep ref updated
     useEffect(() => {
+        markdownRef.current = markdown;
+    }, [markdown]);
+
+    // Save on unmount / doc change
+    useEffect(() => {
+        return () => {
+            // If we have content and a selected doc, save it when leaving
+            if (selectedDoc && markdownRef.current) {
+                // Use api directly to ensure we save the content captured in ref (latest state)
+                // and bypass the hook's saveDoc which relies on state that might be stale in closure
+                // or cause unwanted re-refreshes.
+                api.saveDocument(selectedDoc, markdownRef.current)
+                    .catch(e => console.error("Auto-save on leave failed:", e));
+            }
+        };
+    }, [selectedDoc]);
+
+    const referenceCommand = {
+        name: 'reference',
+        keyCommand: 'reference',
+        buttonProps: { 'aria-label': 'Insert reference' },
+        icon: <span style={{ fontSize: '16px', textAlign: 'center' }}>@</span>,
+        execute: (state, executeApi) => {
+            setEditorApi(() => executeApi);
+            setIsReferenceModalVisible(true);
+        },
+    };
+
+
+
+    // Auto-save logic
+    useEffect(() => {
+        // When selectedDoc changes, reset editing state 
         setIsEditing(false);
     }, [selectedDoc]);
 
+    // Timer auto-save removed as per user request (only save on leave)
+
     const handleEditSave = () => {
-        if (isEditing) {
-            saveDoc();
-        }
+        // Manual save
+        saveDoc();
         setIsEditing(!isEditing);
     }
 
     const renderBreadcrumbs = (path) => {
         const parts = path ? path.split('/') : [];
         const items = [
-            {
-                title: <HomeOutlined />,
-                onClick: () => navigate('/'),
-                className: 'breadcrumb-link',
-            },
             ...parts.map((part, index) => {
                 const fullPath = parts.slice(0, index + 1).join('/');
                 const isLast = index === parts.length - 1;
                 const item = {
                     title: part,
                 };
-                 if (!isLast) {
+                if (!isLast) {
                     item.onClick = () => navigate(`/data/${encodePath(fullPath)}`);
                     item.className = 'breadcrumb-link';
                 }
@@ -221,7 +244,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
         { key: 'settings', label: 'Settings', onClick: () => navigate('/settings') },
         { key: 'trash', label: 'Recycle Bin', onClick: () => navigate('/trash') },
     ];
-    
+
     // Custom renderer for paragraphs to handle @mentions
     const PTagRenderer = ({ children }) => {
         const newChildren = React.Children.toArray(children).flatMap((child, index) => {
@@ -267,7 +290,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
             case 'document':
                 return (
                     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                         {!isMobile && (
+                        {!isMobile && (
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, paddingBottom: '1rem' }}>
                                 {renderBreadcrumbs(selectedDoc)}
                                 <Space>
@@ -328,7 +351,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
             case 'image':
                 return (
                     <>
-                         {!isMobile && renderBreadcrumbs(selectedDoc)}
+                        {!isMobile && renderBreadcrumbs(selectedDoc)}
                         <div style={{ flex: 1, textAlign: 'center', marginTop: isMobile ? 0 : '1rem' }}>
                             <img src={fileContent} alt={selectedDoc} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
                         </div>
@@ -348,9 +371,9 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                     folder={selectedFolder}
                     onSelect={(item) => navigate(`/data/${encodePath(item.path)}`)}
                     renderBreadcrumbs={!isMobile ? renderBreadcrumbs : () => null}
-                    />;
+                />;
             case 'trash':
-                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmptyTrash={emptyTrash} isMobile={isMobile}/>;
+                return <TrashView items={trashedItems} onRestore={restoreItem} onDelete={deletePermanently} onEmptyTrash={emptyTrash} isMobile={isMobile} />;
             case 'settings':
                 return <SettingsView
                     onImport={importFile}
@@ -372,14 +395,15 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                     sharedLinks={sharedLinks}
                     fetchSharedLinks={fetchSharedLinks}
                     handleDeleteShareLink={handleDeleteShareLink}
+                    handleUpdateShareLink={handleUpdateShareLink}
                 />;
             case 'welcome':
             default:
                 return <TableOfContents
-                    folder={{ path: '', children: notes.documents}}
+                    folder={{ path: '', children: notes.documents }}
                     onSelect={(item) => navigate(`/data/${encodePath(item.path)}`)}
                     renderBreadcrumbs={!isMobile ? renderBreadcrumbs : () => null}
-                    />;
+                />;
         }
     };
 
@@ -394,21 +418,21 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {view === 'document' && (
-                             <Button type="primary" onClick={handleEditSave}>
+                            <Button type="primary" onClick={handleEditSave}>
                                 {isEditing ? 'Save' : 'Edit'}
                             </Button>
                         )}
-                        <Dropdown menu={{items: mobileMenuItems}} trigger={['click']}>
+                        <Dropdown menu={{ items: mobileMenuItems }} trigger={['click']}>
                             <Button icon={<PlusOutlined />} />
                         </Dropdown>
-                        <Dropdown menu={{items: mobileMoreMenuItems}} trigger={['click']}>
+                        <Dropdown menu={{ items: mobileMoreMenuItems }} trigger={['click']}>
                             <Button icon={<MoreOutlined />} />
                         </Dropdown>
                     </div>
                 </div>
             )}
             <div style={{ flex: '1 1 auto', overflowY: 'auto' }}>
-                 {renderMainContent()}
+                {renderMainContent()}
             </div>
         </div>
     );

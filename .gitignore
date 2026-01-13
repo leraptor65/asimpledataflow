@@ -20,3 +20,7 @@ data/*
 
 # Publishing scripts
 publish-asdf.sh
+build.sh
+build-asdf.sh
+publish.sh
+git-ready.sh

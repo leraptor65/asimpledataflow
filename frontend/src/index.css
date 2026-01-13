@@ -1,184 +1,249 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  /* Gemini-inspired Theme Variables */
+  :root {
+    --bg-color: #f0f4f9;
+    --surface-color: #ffffff;
+    --text-primary: #1f1f1f;
+    --text-secondary: #444746;
+    --border-color: #e0e3e7;
+    --primary-color: #1a73e8;
+  }
 
-/* Fix for transparent background on the file tree */
-.file-tree-container .ant-tree {
-  background-color: transparent !important;
-}
+  [data-color-mode="dark"] {
+    --bg-color: #131314;
+    --surface-color: #1e1f20;
+    --text-primary: #e3e3e3;
+    --text-secondary: #c4c7c5;
+    --border-color: #444746;
+    --primary-color: #8ab4f8;
+  }
 
-/* Styles for MDX Editor Code Blocks */
-.code-block-wrapper {
-  position: relative;
-  margin: 1em 0;
-}
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+  }
 
-.code-block-header {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 4px 8px;
-  background-color: #e0e0e0;
-  border-top-left-radius: 4px;
-  border-top-right-radius: 4px;
-}
+  /* Fix for transparent background on the file tree */
+  .file-tree-container .ant-tree {
+    background-color: transparent !important;
+    color: var(--text-primary) !important;
+  }
 
-[data-color-mode="dark"] .code-block-header {
-  background-color: #333;
-}
+  .file-tree-container .ant-tree .ant-tree-node-content-wrapper {
+    color: var(--text-primary) !important;
+  }
 
-.code-block-lang {
-  color: #333;
-  font-size: 12px;
-  margin-right: auto;
-  text-transform: uppercase;
-}
+  .file-tree-container .ant-tree .ant-tree-node-content-wrapper:hover {
+    background-color: rgba(0, 0, 0, 0.05) !important;
+  }
 
-[data-color-mode="dark"] .code-block-lang {
-  color: #ccc;
-}
-
-.code-block-copy-btn {
-  background: none;
-  border: 1px solid #aaa;
-  color: #333;
-  cursor: pointer;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-[data-color-mode="dark"] .code-block-copy-btn {
-  color: #ccc;
-  border-color: #666;
-}
-
-.code-block-copy-btn:hover {
-  background-color: #d0d0d0;
-}
-
-[data-color-mode="dark"] .code-block-copy-btn:hover {
-  background-color: #444;
-}
-
-.code-block-wrapper pre {
-  margin-top: 0 !important;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-}
-
-/* Styles for Markdown Preview */
-.wmde-markdown {
-  background-color: #ffffff;
-}
-
-[data-color-mode="dark"] .wmde-markdown {
-  background-color: #0d1117;
-}
-
-.wmde-markdown pre > code {
-  background-color: #f0f2f5;
-  border-radius: 6px;
-  display: block;
-}
-
-.wmde-markdown a {
-  color: #1677ff;
-  text-decoration: none;
-}
-
-.wmde-markdown a:hover {
-  text-decoration: underline;
-}
-
-.wmde-markdown a.internal-link {
-  background-color: rgba(22, 119, 255, 0.1);
-  border-radius: 4px;
-  padding: 2px 4px;
-  color: #1677ff;
-  text-decoration: none;
-}
-[data-color-mode="dark"] .wmde-markdown a.internal-link {
-  background-color: rgba(22, 119, 255, 0.2);
-  color: #69b1ff;
-}
-
-.wmde-markdown a.internal-link:hover {
-  background-color: rgba(22, 119, 255, 0.2);
-  text-decoration: underline;
-}
-
-[data-color-mode="dark"] .wmde-markdown a.internal-link:hover {
-  background-color: rgba(22, 119, 255, 0.3);
-}
+  [data-color-mode="dark"] .file-tree-container .ant-tree .ant-tree-node-content-wrapper:hover {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+  }
 
 
-[data-color-mode="dark"] .wmde-markdown pre > code {
-  background-color: #2a2a2a;
-}
+  /* Styles for MDX Editor Code Blocks */
+  .code-block-wrapper {
+    position: relative;
+    margin: 1em 0;
+  }
 
-/* Styles for MDX Editor Toolbar */
-.w-md-editor-toolbar {
-  padding: 8px !important;
-}
-
-.w-md-editor-toolbar button {
-  padding: 8px !important;
-  height: auto !important;
-  font-size: 16px !important;
-}
-
-
-/* Activity Log Fix */
-.activity-log-pre {
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 10px;
-  border-radius: 4px;
-  background: #f5f5f5;
-  color: #000;
-}
-
-.ant-layout-sider-dark .activity-log-pre {
-  background: #2a2a2a;
-  color: #f0f0f0;
-}
-
-/* Styles for clickable breadcrumbs */
-.breadcrumb-link {
-  cursor: pointer;
-}
-
-.breadcrumb-link .ant-breadcrumb-link,
-.breadcrumb-link .anticon {
-  transition: all 0.2s;
-}
-
-.breadcrumb-link:hover .ant-breadcrumb-link,
-.breadcrumb-link:hover .anticon {
-  font-weight: 600;
-  color: #000000;
-}
-
-[data-color-mode="dark"] .breadcrumb-link:hover .ant-breadcrumb-link,
-[data-color-mode="dark"] .breadcrumb-link:hover .anticon {
-  color: #ffffff;
-}
+  .code-block-header {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 4px 8px;
+    background-color: var(--border-color);
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+  }
 
 
-/* Styles for search results */
-.search-result-item:hover {
-    background-color: rgba(0, 0, 0, 0.04);
-}
+  .code-block-lang {
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-right: auto;
+    text-transform: uppercase;
+  }
 
-[data-theme="dark"] .search-result-item:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-}
+  .code-block-copy-btn {
+    background: none;
+    border: 1px solid var(--text-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
 
+
+  .code-block-copy-btn:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+  }
+
+  [data-color-mode="dark"] .code-block-copy-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+
+  .code-block-wrapper pre {
+    margin-top: 0 !important;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+
+  /* Styles for Markdown Preview */
+  .wmde-markdown {
+    background-color: transparent !important;
+    /* Using the layout background */
+    color: var(--text-primary);
+  }
+
+
+  .wmde-markdown pre>code {
+    background-color: var(--bg-color);
+    border-radius: 6px;
+    display: block;
+  }
+
+  .wmde-markdown a {
+    color: var(--primary-color);
+    text-decoration: none;
+  }
+
+  .wmde-markdown a:hover {
+    text-decoration: underline;
+  }
+
+  .wmde-markdown a.internal-link {
+    background-color: rgba(26, 115, 232, 0.1);
+    border-radius: 4px;
+    padding: 2px 4px;
+    color: var(--primary-color);
+    text-decoration: none;
+  }
+
+  [data-color-mode="dark"] .wmde-markdown a.internal-link {
+    background-color: rgba(138, 180, 248, 0.2);
+    color: var(--primary-color);
+  }
+
+  .wmde-markdown a.internal-link:hover {
+    background-color: rgba(26, 115, 232, 0.2);
+    text-decoration: underline;
+  }
+
+  [data-color-mode="dark"] .wmde-markdown a.internal-link:hover {
+    background-color: rgba(138, 180, 248, 0.3);
+  }
+
+
+  [data-color-mode="dark"] .wmde-markdown pre>code {
+    background-color: #2a2a2a;
+  }
+
+  /* Styles for MDX Editor Toolbar */
+  .w-md-editor-toolbar {
+    padding: 8px !important;
+    background-color: var(--surface-color) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
+  }
+
+  [data-color-mode="dark"] .w-md-editor-toolbar {
+    color: var(--text-primary) !important;
+  }
+
+  .w-md-editor-toolbar button {
+    padding: 8px !important;
+    height: auto !important;
+    font-size: 16px !important;
+    color: var(--text-primary) !important;
+  }
+
+  .w-md-editor-toolbar button:hover {
+    background-color: var(--bg-color) !important;
+  }
+
+
+  /* Activity Log Fix */
+  .activity-log-pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 10px;
+    border-radius: 4px;
+    background: var(--bg-color);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+  }
+
+
+  /* Styles for clickable breadcrumbs */
+  /* Styles for clickable breadcrumbs */
+  .breadcrumb-link {
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text-secondary);
+  }
+
+  .breadcrumb-link:hover {
+    font-weight: 600;
+    color: var(--primary-color);
+  }
+
+
+  /* Styles for search results */
+  .search-result-item:hover {
+    background-color: var(--bg-color);
+  }
+
+  /* Force white text for Menu items in dark mode and REMOVE BLUE BACKGROUNDS */
+  [data-color-mode="dark"] .ant-menu,
+  [data-color-mode="dark"] .ant-menu-dark,
+  [data-color-mode="dark"] .ant-menu.ant-menu-dark,
+  [data-color-mode="dark"] .ant-menu-item,
+  [data-color-mode="dark"] .ant-menu-submenu-title {
+    background-color: transparent !important;
+    background: transparent !important;
+    color: #e3e3e3 !important;
+  }
+
+  /* Remove blue specific to submenus or root menu if needed */
+  [data-color-mode="dark"] .ant-menu-inline,
+  [data-color-mode="dark"] .ant-menu-vertical {
+    background: transparent !important;
+  }
+
+  [data-color-mode="dark"] .ant-menu-item-selected {
+    background-color: rgba(138, 180, 248, 0.2) !important;
+    color: #8ab4f8 !important;
+  }
+
+  /* Sidebar Trigger (Collapse Button) - Specific override for blue background */
+  /* Target it via the aside parent to ensure specificity */
+  [data-color-mode="dark"] .ant-layout-sider-trigger,
+  [data-color-mode="dark"] aside .ant-layout-sider-trigger {
+    background-color: #1e1f20 !important;
+    color: #e3e3e3 !important;
+    border-top: 1px solid #444746 !important;
+  }
+
+  /* File Tree text color in dark mode - Nuclear option for all spans */
+  [data-color-mode="dark"] .file-tree-container .ant-tree,
+  [data-color-mode="dark"] .file-tree-container .ant-tree *,
+  [data-color-mode="dark"] .file-tree-container .ant-tree span {
+    color: #e3e3e3 !important;
+    background-color: transparent;
+    /* Prevent inherited backgrounds on spans */
+  }
+
+  [data-color-mode="dark"] .file-tree-container .ant-tree .ant-tree-node-content-wrapper:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+  }
