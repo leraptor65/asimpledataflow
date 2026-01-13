@@ -46,6 +46,86 @@
     background-color: rgba(255, 255, 255, 0.05) !important;
   }
 
+  /* Printer Friendly Styles */
+  @media print {
+
+    /* Hide all UI elements except the main content */
+    header,
+    aside,
+    .ant-layout-sider,
+    .ant-layout-sider-trigger,
+    .ant-breadcrumb,
+    .ant-btn,
+    .ant-space,
+    button,
+    .w-md-editor-toolbar,
+    .code-block-header,
+    .w-md-editor-text-input,
+    .w-md-editor-text-pre,
+    textarea {
+      display: none !important;
+    }
+
+    /* Reset Layout margins and heights */
+    html,
+    body,
+    #root,
+    .App,
+    .ant-layout,
+    .ant-layout-content {
+      margin: 0 !important;
+      padding: 0 !important;
+      height: auto !important;
+      overflow: visible !important;
+      display: block !important;
+      background-color: #ffffff !important;
+    }
+
+    /* Target the specific editor containers we found */
+    .wmde-markdown-var,
+    .w-md-editor,
+    .w-md-editor-content,
+    .w-md-editor-preview {
+      height: auto !important;
+      overflow: visible !important;
+      display: block !important;
+      position: static !important;
+    }
+
+    /* Rendered Markdown Styling */
+    .wmde-markdown {
+      padding: 0 !important;
+      font-size: 12pt;
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
+
+    .wmde-markdown pre,
+    .wmde-markdown pre>code,
+    .wmde-markdown code {
+      background-color: #f5f5f5 !important;
+      color: #000000 !important;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      white-space: pre-wrap !important;
+      /* Ensure code wraps */
+    }
+
+    /* Links */
+    a {
+      text-decoration: none !important;
+      color: #000000 !important;
+    }
+
+    /* Ensure no other elements interfere */
+    * {
+      box-shadow: none !important;
+      text-shadow: none !important;
+    }
+  }
+
 
   /* Styles for MDX Editor Code Blocks */
   .code-block-wrapper {

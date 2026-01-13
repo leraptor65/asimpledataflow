@@ -6,6 +6,7 @@ import {
     ArrowLeftOutlined,
     MoreOutlined,
     PlusOutlined,
+    FilePdfOutlined,
 } from '@ant-design/icons';
 import MDEditor, { commands } from '@uiw/react-md-editor';
 import * as api from '../api';
@@ -294,6 +295,9 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, paddingBottom: '1rem' }}>
                                 {renderBreadcrumbs(selectedDoc)}
                                 <Space>
+                                    <Button onClick={() => window.print()} icon={<FilePdfOutlined />}>
+                                        Download PDF
+                                    </Button>
                                     <Button onClick={() => handleCreateShareLink({ path: selectedDoc })}>
                                         Share
                                     </Button>

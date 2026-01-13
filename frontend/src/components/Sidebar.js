@@ -66,13 +66,13 @@ const Sidebar = ({ notes, isSidebarCollapsed, setIsSidebarCollapsed, isDarkMode 
         {
             key: 'trash',
             icon: <TrashIcon />,
-            label: isSidebarCollapsed ? null : 'Recycle Bin',
+            label: 'Recycle Bin',
             onClick: () => navigate('/trash'),
         },
         {
             key: 'settings',
             icon: <SettingOutlined />,
-            label: isSidebarCollapsed ? null : 'Settings',
+            label: 'Settings',
             onClick: () => navigate('/settings'),
         },
     ];
