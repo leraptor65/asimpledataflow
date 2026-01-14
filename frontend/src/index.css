@@ -327,3 +327,53 @@
   [data-color-mode="dark"] .file-tree-container .ant-tree .ant-tree-node-content-wrapper:hover {
     background-color: rgba(255, 255, 255, 0.08) !important;
   }
+
+  /* PDF Export Container Styles - Enforce High Contrast Light Theme */
+  .pdf-export-container {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    padding: 20px !important;
+    /* Add some padding for the PDF */
+    width: 100% !important;
+    /* Ensure full width */
+  }
+
+  .pdf-export-container * {
+    color: #000000 !important;
+    background-color: transparent !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+
+  .pdf-export-container .wmde-markdown {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .pdf-export-container pre,
+  .pdf-export-container code {
+    background-color: #f5f5f5 !important;
+    color: #000000 !important;
+    border: 1px solid #cccccc !important;
+  }
+
+  .pdf-export-container a {
+    color: #000000 !important;
+    text-decoration: underline !important;
+  }
+
+  .pdf-export-container blockquote {
+    border-left: 4px solid #cccccc !important;
+    color: #333333 !important;
+  }
+
+  .pdf-export-container table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  .pdf-export-container th,
+  .pdf-export-container td {
+    border: 1px solid #000000 !important;
+    padding: 8px !important;
+  }

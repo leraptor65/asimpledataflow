@@ -9,6 +9,7 @@ import {
     FilePdfOutlined,
 } from '@ant-design/icons';
 import MDEditor, { commands } from '@uiw/react-md-editor';
+import html2pdf from 'html2pdf.js';
 import * as api from '../api';
 
 import TableOfContents from './TableOfContents';
@@ -277,7 +278,51 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
         return <p>{newChildren}</p>;
     };
 
+    const handleDownloadPDF = () => {
+        const element = document.querySelector('.wmde-markdown');
+        if (!element) {
+            notification.error({ message: 'Could not find content to generate PDF' });
+            return;
+        }
 
+        // Clone the element to not affect the current view
+        const clone = element.cloneNode(true);
+
+        // Wrap in a container with the forced light theme class
+        const container = document.createElement('div');
+        container.className = 'pdf-export-container';
+        container.appendChild(clone);
+
+        // Position off-screen but visible so it renders
+        container.style.position = 'fixed';
+        container.style.top = '0';
+        container.style.left = '0';
+        container.style.zIndex = '-9999';
+        container.style.visibility = 'visible';
+        container.style.width = '800px'; // Fix width for PDF consistency
+        document.body.appendChild(container);
+
+        const opt = {
+            margin: [10, 10, 10, 10],
+            filename: `${selectedDoc ? selectedDoc.replace(/\//g, '-') : 'document'}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        // Allow a brief moment for the DOM to render the clone
+        setTimeout(() => {
+            html2pdf().set(opt).from(container).save().then(() => {
+                document.body.removeChild(container);
+            }).catch(err => {
+                console.error('PDF Generation Error:', err);
+                notification.error({ message: 'Failed to generate PDF' });
+                if (document.body.contains(container)) {
+                    document.body.removeChild(container);
+                }
+            });
+        }, 100);
+    };
     const renderMainContent = () => {
         if (isLoading) {
             return (
@@ -295,7 +340,7 @@ const NoteEditor = ({ notes, isDarkMode, toggleTheme, isMobile }) => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, paddingBottom: '1rem' }}>
                                 {renderBreadcrumbs(selectedDoc)}
                                 <Space>
-                                    <Button onClick={() => window.print()} icon={<FilePdfOutlined />}>
+                                    <Button onClick={handleDownloadPDF} icon={<FilePdfOutlined />}>
                                         Download PDF
                                     </Button>
                                     <Button onClick={() => handleCreateShareLink({ path: selectedDoc })}>
