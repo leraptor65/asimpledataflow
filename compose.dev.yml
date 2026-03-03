@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend:/app
+      - ./notes:/app/data
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=appuser
+      - DB_PASSWORD=secretpassword
+      - DB_NAME=notesdb
+    depends_on:
+      - postgres
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - BACKEND_URL=http://backend:8080
+    depends_on:
+      - backend
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: secretpassword
+      POSTGRES_DB: notesdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

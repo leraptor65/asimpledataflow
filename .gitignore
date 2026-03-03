@@ -1,0 +1,33 @@
+# Application Built Assets and Caches
+.next/
+out/
+node_modules/
+dist/
+build/
+backend/tmp/
+
+# OS/Editor Metadata
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Personal Data / Vault Directories
+notes/
+my-local-notes/
+data/
+.recycle_bin/
+.dataDir/
+
+# Local Deployment Scripts
+build.sh
+publish.sh
