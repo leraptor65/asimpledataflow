@@ -129,6 +129,14 @@ func createSchema(db *sql.DB) {
 		target_id INTEGER REFERENCES notes(id) ON DELETE CASCADE,
 		PRIMARY KEY (source_id, target_id)
 	);
+
+	CREATE TABLE IF NOT EXISTS shared_links (
+		id SERIAL PRIMARY KEY,
+		token TEXT UNIQUE NOT NULL,
+		filename TEXT NOT NULL,
+		expires_at TIMESTAMP NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);
 	`
 	_, err := db.Exec(schema)
 	if err != nil {

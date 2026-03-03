@@ -1,19 +1,78 @@
 "use client";
 
-import { Settings as SettingsIcon, Trash2, Monitor } from "lucide-react";
+import { Settings as SettingsIcon, Trash2, Monitor, Link2, Copy, ExternalLink } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+
+interface SharedLink {
+    id: number;
+    token: string;
+    filename: string;
+    expires_at: string | null;
+    created_at: string;
+}
 
 export default function Settings() {
     const { theme, setTheme } = useTheme();
     const [mounted, setMounted] = useState(false);
     const [syncInterval, setSyncInterval] = useState("0");
+    const [sharedLinks, setSharedLinks] = useState<SharedLink[]>([]);
+    const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
     useEffect(() => {
         setMounted(true);
         const savedSync = localStorage.getItem("asdf_auto_sync_interval");
         if (savedSync) setSyncInterval(savedSync);
+        fetchSharedLinks();
     }, []);
+
+    const fetchSharedLinks = async () => {
+        try {
+            const res = await fetch("/api/shares");
+            if (res.ok) {
+                const data = await res.json();
+                setSharedLinks(data || []);
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    const handleRevokeLink = async (token: string) => {
+        if (!confirm("Are you sure you want to revoke this shared link?")) return;
+        try {
+            await fetch(`/api/share/${token}`, { method: "DELETE" });
+            fetchSharedLinks();
+        } catch (e) { console.error(e); }
+    };
+
+    const handleUpdateExpiry = async (token: string, expiresIn: string) => {
+        try {
+            await fetch(`/api/share/${token}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ expires_in: expiresIn }),
+            });
+            fetchSharedLinks();
+        } catch (e) { console.error(e); }
+    };
+
+    const copyShareUrl = (token: string) => {
+        const url = `${window.location.origin}/share/${token}`;
+        navigator.clipboard.writeText(url);
+        setCopiedToken(token);
+        setTimeout(() => setCopiedToken(null), 2000);
+    };
+
+    const isExpired = (link: SharedLink) => {
+        if (!link.expires_at) return false;
+        return new Date() > new Date(link.expires_at);
+    };
+
+    const formatExpiry = (link: SharedLink) => {
+        if (!link.expires_at) return "Never";
+        const d = new Date(link.expires_at);
+        if (isExpired(link)) return "Expired";
+        return d.toLocaleString();
+    };
 
     const handleSyncChange = (e: any) => {
         setSyncInterval(e.target.value);
@@ -76,8 +135,73 @@ export default function Settings() {
                             )}
                         </div>
                     </section>
+
                     <section className="p-6 border border-border rounded-lg bg-card">
-                        <h2 className="text-xl font-semibold text-card-foreground mb-4">Storage & Maintenance</h2>
+                        <h2 className="text-xl font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                            <Link2 size={20} />
+                            Shared Links
+                        </h2>
+                        <p className="text-sm text-muted-foreground mb-4">Manage your shared note links. Links expire after 24 hours by default.</p>
+                        {sharedLinks.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">No shared links yet. Use the Share button on any note to generate one.</p>
+                        ) : (
+                            <div className="space-y-3">
+                                {sharedLinks.map((link) => (
+                                    <div key={link.id} className={`p-3 rounded-md border ${isExpired(link) ? "border-destructive/30 bg-destructive/5" : "border-border bg-muted/30"}`}>
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium text-foreground truncate">{link.filename.replace(".md", "")}</p>
+                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                    Expires: <span className={isExpired(link) ? "text-destructive font-medium" : ""}>{formatExpiry(link)}</span>
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <button
+                                                    onClick={() => copyShareUrl(link.token)}
+                                                    className="p-1.5 hover:bg-muted rounded transition text-muted-foreground hover:text-foreground"
+                                                    title="Copy Link"
+                                                >
+                                                    {copiedToken === link.token ? <span className="text-xs text-green-500">Copied!</span> : <Copy size={14} />}
+                                                </button>
+                                                <a
+                                                    href={`/share/${link.token}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="p-1.5 hover:bg-muted rounded transition text-muted-foreground hover:text-foreground"
+                                                    title="Open Link"
+                                                >
+                                                    <ExternalLink size={14} />
+                                                </a>
+                                                <select
+                                                    onChange={(e) => handleUpdateExpiry(link.token, e.target.value)}
+                                                    defaultValue=""
+                                                    className="text-xs bg-background border border-input rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-ring"
+                                                    title="Change Expiry"
+                                                >
+                                                    <option value="" disabled>Expiry</option>
+                                                    <option value="1h">1 Hour</option>
+                                                    <option value="24h">24 Hours</option>
+                                                    <option value="7d">7 Days</option>
+                                                    <option value="30d">30 Days</option>
+                                                    <option value="never">Never</option>
+                                                </select>
+                                                <button
+                                                    onClick={() => handleRevokeLink(link.token)}
+                                                    className="p-1.5 hover:bg-destructive/10 rounded transition text-destructive"
+                                                    title="Revoke Link"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </section>
+
+                    <section className="p-6 border border-border rounded-lg bg-card">
+                        <h2 className="text-xl font-semibold text-card-foreground mb-4">Storage &amp; Maintenance</h2>
                         <div className="flex items-center justify-between">
                             <div>
                                 <h3 className="font-medium text-foreground">Orphan Image Cleanup</h3>

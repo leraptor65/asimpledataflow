@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer } from "lucide-react";
+import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2 } from "lucide-react";
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -81,6 +81,8 @@ export default function SplitEditor({ note, onSave, onDirtyChange }: SplitEditor
     const editorRef = useRef<any>(null);
     const shareRef = useRef<HTMLDivElement>(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
+    const [shareUrl, setShareUrl] = useState("");
+    const [shareCopied, setShareCopied] = useState(false);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -91,6 +93,27 @@ export default function SplitEditor({ note, onSave, onDirtyChange }: SplitEditor
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    const handleGenerateLink = async () => {
+        if (!note || !note.filename) return;
+        try {
+            const res = await fetch("/api/share", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: note.filename }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const url = `${window.location.origin}/share/${data.token}`;
+                setShareUrl(url);
+                navigator.clipboard.writeText(url);
+                setShareCopied(true);
+                setTimeout(() => setShareCopied(false), 3000);
+            }
+        } catch (e) {
+            console.error("Failed to generate share link", e);
+        }
+    };
 
     const fetchHistory = async () => {
         if (!note || !note.filename) return;
@@ -394,13 +417,43 @@ export default function SplitEditor({ note, onSave, onDirtyChange }: SplitEditor
                                     <Share2 size={16} />
                                 </button>
                                 {isShareOpen && (
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-48 bg-popover border border-border rounded-md shadow-md py-1 text-popover-foreground flex flex-col font-medium">
+                                    <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-popover border border-border rounded-md shadow-md py-1 text-popover-foreground flex flex-col font-medium">
+                                        <button
+                                            onClick={handleGenerateLink}
+                                            className="flex items-center gap-2 px-4 py-2 text-left hover:bg-muted transition-colors text-sm"
+                                        >
+                                            <Link2 size={16} className="text-muted-foreground" />
+                                            {shareCopied ? "Link Copied!" : "Generate Link"}
+                                        </button>
+                                        {shareUrl && (
+                                            <div className="px-4 py-2 border-t border-border">
+                                                <div className="flex items-center gap-1">
+                                                    <input
+                                                        type="text"
+                                                        readOnly
+                                                        value={shareUrl}
+                                                        className="flex-1 text-xs bg-muted border border-border rounded px-2 py-1 text-muted-foreground truncate"
+                                                    />
+                                                    <button
+                                                        onClick={() => {
+                                                            navigator.clipboard.writeText(shareUrl);
+                                                            setShareCopied(true);
+                                                            setTimeout(() => setShareCopied(false), 3000);
+                                                        }}
+                                                        className="p-1 hover:bg-muted rounded transition"
+                                                        title="Copy Link"
+                                                    >
+                                                        <Copy size={14} className="text-muted-foreground" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                         <button
                                             onClick={() => {
                                                 setIsShareOpen(false);
                                                 window.print();
                                             }}
-                                            className="flex items-center gap-2 px-4 py-2 text-left hover:bg-muted transition-colors text-sm"
+                                            className="flex items-center gap-2 px-4 py-2 text-left hover:bg-muted transition-colors text-sm border-t border-border"
                                         >
                                             <Printer size={16} className="text-muted-foreground" />
                                             Print

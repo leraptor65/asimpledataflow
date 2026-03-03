@@ -15,3 +15,11 @@ type Link struct {
 	SourceID int `json:"source_id"`
 	TargetID int `json:"target_id"`
 }
+
+type SharedLink struct {
+	ID        int        `json:"id"`
+	Token     string     `json:"token"`
+	Filename  string     `json:"filename"`
+	ExpiresAt *time.Time `json:"expires_at"` // nil = never expires
+	CreatedAt time.Time  `json:"created_at"`
+}

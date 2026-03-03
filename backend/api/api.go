@@ -2,14 +2,17 @@ package api
 
 import (
 	"archive/zip"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/leraptor65/simple-data-flow/gitops"
@@ -56,6 +59,13 @@ func (a *API) RegisterRoutes(r chi.Router) {
 
 	r.Get("/api/export", a.HandleExportVault)
 	r.Post("/api/import", a.HandleImportVault)
+
+	// Shared links
+	r.Post("/api/share", a.HandleCreateShareLink)
+	r.Get("/api/shares", a.HandleListShareLinks)
+	r.Delete("/api/share/{token}", a.HandleRevokeShareLink)
+	r.Put("/api/share/{token}", a.HandleUpdateShareLink)
+	r.Get("/api/shared/{token}", a.HandleViewSharedNote)
 }
 
 func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
@@ -610,4 +620,184 @@ func (a *API) HandleImportVault(w http.ResponseWriter, r *http.Request) {
 	git.CommitAll("Vault imported from ZIP")
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func generateToken(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		b[i] = charset[n.Int64()]
+	}
+	return string(b)
+}
+
+func (a *API) HandleCreateShareLink(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Filename  string `json:"filename"`
+		ExpiresIn string `json:"expires_in"` // e.g. "24h", "7d", "never"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	token := generateToken(12)
+
+	var expiresAt *time.Time
+	if req.ExpiresIn != "never" && req.ExpiresIn != "" {
+		duration, err := parseDuration(req.ExpiresIn)
+		if err != nil {
+			http.Error(w, "Invalid expires_in value", http.StatusBadRequest)
+			return
+		}
+		t := time.Now().Add(duration)
+		expiresAt = &t
+	} else if req.ExpiresIn == "" {
+		// Default: 24 hours
+		t := time.Now().Add(24 * time.Hour)
+		expiresAt = &t
+	}
+
+	var link models.SharedLink
+	err := a.db.QueryRow(
+		"INSERT INTO shared_links (token, filename, expires_at) VALUES ($1, $2, $3) RETURNING id, token, filename, expires_at, created_at",
+		token, req.Filename, expiresAt,
+	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(link)
+}
+
+func parseDuration(s string) (time.Duration, error) {
+	// Support "1h", "24h", "7d", "30d"
+	if strings.HasSuffix(s, "d") {
+		numStr := strings.TrimSuffix(s, "d")
+		var days int
+		if _, err := json.Number(numStr).Int64(); err == nil {
+			n, _ := json.Number(numStr).Int64()
+			days = int(n)
+		} else {
+			return 0, err
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
+}
+
+func (a *API) HandleListShareLinks(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query("SELECT id, token, filename, expires_at, created_at FROM shared_links ORDER BY created_at DESC")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var links []models.SharedLink
+	for rows.Next() {
+		var l models.SharedLink
+		if err := rows.Scan(&l.ID, &l.Token, &l.Filename, &l.ExpiresAt, &l.CreatedAt); err != nil {
+			continue
+		}
+		links = append(links, l)
+	}
+
+	if links == nil {
+		links = []models.SharedLink{}
+	}
+	json.NewEncoder(w).Encode(links)
+}
+
+func (a *API) HandleRevokeShareLink(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	_, err := a.db.Exec("DELETE FROM shared_links WHERE token = $1", token)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *API) HandleUpdateShareLink(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	var req struct {
+		ExpiresIn string `json:"expires_in"` // "1h", "24h", "7d", "30d", "never"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.ExpiresIn == "never" {
+		_, err := a.db.Exec("UPDATE shared_links SET expires_at = NULL WHERE token = $1", token)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		duration, err := parseDuration(req.ExpiresIn)
+		if err != nil {
+			http.Error(w, "Invalid expires_in value", http.StatusBadRequest)
+			return
+		}
+		newExpiry := time.Now().Add(duration)
+		_, err = a.db.Exec("UPDATE shared_links SET expires_at = $1 WHERE token = $2", newExpiry, token)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *API) HandleViewSharedNote(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+
+	var link models.SharedLink
+	err := a.db.QueryRow(
+		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = $1", token,
+	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		http.Error(w, "Link not found or expired", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check expiration
+	if link.ExpiresAt != nil && time.Now().After(*link.ExpiresAt) {
+		http.Error(w, "This shared link has expired", http.StatusGone)
+		return
+	}
+
+	// Fetch note content
+	var n models.Note
+	err = a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes WHERE filename = $1", link.Filename).
+		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified)
+
+	if err == sql.ErrNoRows {
+		// Fallback to disk
+		path := filepath.Join(a.dataDir, link.Filename)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			http.Error(w, "Note not found", http.StatusNotFound)
+			return
+		}
+		n.Filename = link.Filename
+		n.Content = string(content)
+		n.Title = link.Filename
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(n)
 }
