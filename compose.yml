@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   app:
-    image: leraptor65/asimpledataflow:latest
+    image: leraptor65/asimpledataflow:testing
     ports:
       - "3000:3000"
     volumes:

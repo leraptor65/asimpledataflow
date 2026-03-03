@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -92,14 +93,20 @@ func initDB() {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 
-	err = db.Ping()
+	// Retry connecting to Postgres until it's ready (up to 30 attempts)
+	for i := 0; i < 30; i++ {
+		err = db.Ping()
+		if err == nil {
+			log.Println("Successfully connected to Postgres!")
+			break
+		}
+		log.Printf("Waiting for Postgres to be ready (attempt %d/30): %v", i+1, err)
+		time.Sleep(2 * time.Second)
+	}
 	if err != nil {
-		log.Printf("Warning: Database ping failed (might be starting up): %v", err)
-	} else {
-		log.Println("Successfully connected to Postgres!")
+		log.Fatalf("Could not connect to Postgres after 30 attempts: %v", err)
 	}
 
-	// Wait, actually I should create the schema here
 	createSchema(db)
 }
 
