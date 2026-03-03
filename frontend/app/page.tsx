@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import SplitEditor from "@/components/SplitEditor";
 import CommandPalette from "@/components/CommandPalette";
 import Settings from "@/components/Settings";
 
 export default function Home() {
+  const router = useRouter();
+  const pathname = usePathname();
+
   const [notes, setNotes] = useState<any[]>([]);
   const [treeData, setTreeData] = useState<any[]>([]);
   const [selectedNote, setSelectedNote] = useState<any | null>(null);
@@ -53,25 +57,34 @@ export default function Home() {
     fetchTree();
   }, []);
 
-  const handleSelectNote = async (noteOrFilename: any) => {
-    const filename = typeof noteOrFilename === 'string' ? noteOrFilename : noteOrFilename.filename;
+  // Sync URL → selected note: when pathname changes, load the note
+  useEffect(() => {
+    if (pathname.startsWith("/notes/")) {
+      const notePath = decodeURIComponent(pathname.replace("/notes/", ""));
+      // Only load if it's different from the currently selected note
+      if (!selectedNote || selectedNote.filename !== notePath) {
+        loadNote(notePath);
+      }
+      setCurrentView("editor");
+    }
+  }, [pathname]);
+
+  const loadNote = async (filename: string) => {
     try {
-      // Need to fetch full content from backend
       const res = await fetch(`/api/notes/${encodeURIComponent(filename)}`);
       if (res.ok) {
         const fullNote = await res.json();
         setSelectedNote(fullNote);
-        setCurrentView("editor");
-      } else {
-        // Fallback for new empty notes
-        if (typeof noteOrFilename !== 'string') {
-          setSelectedNote(noteOrFilename);
-          setCurrentView("editor");
-        }
       }
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const handleSelectNote = async (noteOrFilename: any) => {
+    const filename = typeof noteOrFilename === 'string' ? noteOrFilename : noteOrFilename.filename;
+    // Navigate via URL - the useEffect above will handle loading the note
+    router.push(`/notes/${encodeURIComponent(filename)}`);
   };
 
   const executePendingNavigation = () => {
@@ -106,6 +119,7 @@ export default function Home() {
     };
     setSelectedNote(newNote);
     setCurrentView("editor");
+    router.push(`/notes/${encodeURIComponent(filename)}`);
   };
 
   const handleSaveNote = async (originalFilename: string, newFilename: string, content: string) => {
@@ -133,6 +147,10 @@ export default function Home() {
           }
           return prev;
         });
+        // Update URL if filename changed
+        if (originalFilename !== newFilename) {
+          router.replace(`/notes/${encodeURIComponent(newFilename)}`);
+        }
         // Refresh notes list slightly delayed to allow fsnotify Postgres indexation
         setTimeout(() => {
           fetchNotes();
