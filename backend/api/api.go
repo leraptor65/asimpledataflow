@@ -937,15 +937,21 @@ func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find notes whose content contains [[title]] where title matches this note
 	title := strings.TrimSuffix(filepath.Base(filename), ".md")
 
+	// Query using both: links table (indexed) and content LIKE (fallback)
 	rows, err := a.db.Query(`
-		SELECT id, filename, title, COALESCE(frontmatter, '{}'), last_modified
-		FROM notes 
-		WHERE content LIKE '%[[' || $1 || ']]%' 
-		AND filename != $2
-	`, title, filename)
+		SELECT DISTINCT n.id, n.filename, n.title, COALESCE(n.frontmatter, '{}'), n.last_modified
+		FROM notes n
+		WHERE n.filename != $1 AND (
+			n.id IN (
+				SELECT l.source_id FROM links l
+				JOIN notes target ON l.target_id = target.id
+				WHERE target.filename = $1
+			)
+			OR n.content LIKE '%[[' || $2 || ']]%'
+		)
+	`, filename, title)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

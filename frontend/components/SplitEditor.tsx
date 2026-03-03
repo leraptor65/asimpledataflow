@@ -569,25 +569,26 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                                         rehypePlugins={[rehypeHighlight, rehypeKatex]}
                                         components={{
                                             pre: PreCode,
-                                            a: ({ href, children, ...props }: any) => {
+                                            a: ({ href, children }: any) => {
                                                 if (href?.startsWith('wikilink://')) {
                                                     const noteName = decodeURIComponent(href.replace('wikilink://', ''));
                                                     return (
-                                                        <a
-                                                            href="#"
+                                                        <span
                                                             onClick={(e) => {
                                                                 e.preventDefault();
+                                                                e.stopPropagation();
                                                                 const filename = noteName.endsWith('.md') ? noteName : `${noteName}.md`;
                                                                 onSelectNote?.(filename);
                                                             }}
                                                             className="text-primary hover:underline cursor-pointer"
-                                                            {...props}
+                                                            role="link"
+                                                            tabIndex={0}
                                                         >
                                                             {children}
-                                                        </a>
+                                                        </span>
                                                     );
                                                 }
-                                                return <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+                                                return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
                                             }
                                         }}
                                     >

@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/fsnotify/fsnotify"
@@ -21,6 +22,8 @@ func NewWatcher(db *sql.DB, dataDir string) *Watcher {
 		dataDir: dataDir,
 	}
 }
+
+var wikiLinkRegex = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 
 func (w *Watcher) Start() {
 	watcher, err := fsnotify.NewWatcher()
@@ -133,6 +136,52 @@ func (w *Watcher) ProcessFile(path string) {
 
 	if err != nil {
 		log.Printf("Error upserting note %s: %v", path, err)
+		return
+	}
+
+	// Index wiki-links: parse [[...]] references and update links table
+	w.indexWikiLinks(filename, content)
+}
+
+func (w *Watcher) indexWikiLinks(sourceFilename string, content string) {
+	// Get source note ID
+	var sourceID int
+	err := w.db.QueryRow("SELECT id FROM notes WHERE filename = $1", sourceFilename).Scan(&sourceID)
+	if err != nil {
+		return
+	}
+
+	// Delete old links from this source
+	w.db.Exec("DELETE FROM links WHERE source_id = $1", sourceID)
+
+	// Find all [[...]] references
+	matches := wikiLinkRegex.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return
+	}
+
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		targetName := match[1]
+
+		// Try to find the target note by matching filename patterns
+		// Search for exact filename match, with or without .md, with or without path
+		var targetID int
+		err := w.db.QueryRow(`
+			SELECT id FROM notes WHERE 
+				filename = $1 OR 
+				filename = $2 OR 
+				filename LIKE '%/' || $2
+		`, targetName, targetName+".md").Scan(&targetID)
+
+		if err == nil && targetID != sourceID {
+			w.db.Exec(
+				"INSERT INTO links (source_id, target_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+				sourceID, targetID,
+			)
+		}
 	}
 }
 
