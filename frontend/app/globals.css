@@ -1,0 +1,265 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #020817;
+
+    --muted: #f1f5f9;
+    /* --muted-foreground: #64748b; */
+    --muted-foreground: #020817;
+
+    --popover: #ffffff;
+    --popover-foreground: #020817;
+
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+
+    --card: #ffffff;
+    --card-foreground: #020817;
+
+    --primary: #0f172a;
+    --primary-foreground: #f8fafc;
+
+    --secondary: #f1f5f9;
+    --secondary-foreground: #0f172a;
+
+    --accent: #f1f5f9;
+    --accent-foreground: #0f172a;
+
+    --destructive: #ef4444;
+    --destructive-foreground: #f8fafc;
+
+    --ring: #94a3b8;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: #1e1e1e;
+    --foreground: #d4d4d4;
+
+    --muted: #252526;
+    /* --muted-foreground: #808080; */
+    --muted-foreground: #d4d4d4;
+
+    --popover: #252526;
+    --popover-foreground: #d4d4d4;
+
+    --border: #3c3c3c;
+    --input: #3c3c3c;
+
+    --card: #1e1e1e;
+    --card-foreground: #d4d4d4;
+
+    --primary: #007acc;
+    --primary-foreground: #ffffff;
+
+    --secondary: #252526;
+    --secondary-foreground: #d4d4d4;
+
+    --accent: #252526;
+    --accent-foreground: #d4d4d4;
+
+    --destructive: #f48771;
+    --destructive-foreground: #f8fafc;
+
+    --ring: #007acc;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Markdown prose styles for react-markdown */
+.prose {
+  @apply max-w-none text-foreground;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  @apply text-foreground font-bold mt-8 mb-4;
+}
+
+.prose h1 {
+  @apply text-4xl border-b border-border pb-2;
+}
+
+.prose h2 {
+  @apply text-3xl border-b border-border pb-2;
+}
+
+.prose h3 {
+  @apply text-2xl;
+}
+
+.prose p {
+  @apply my-4 leading-7;
+}
+
+.prose a {
+  @apply text-blue-500 hover:underline;
+}
+
+.prose ul {
+  @apply list-disc list-inside my-4;
+}
+
+.prose ol {
+  @apply list-decimal list-inside my-4;
+}
+
+.prose li {
+  @apply my-1;
+}
+
+.prose blockquote {
+  @apply border-l-4 border-primary pl-4 italic text-muted-foreground my-4;
+}
+
+.prose pre {
+  @apply bg-muted p-4 rounded-md overflow-x-auto my-4 text-sm;
+}
+
+.prose code {
+  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono text-primary;
+}
+
+.prose pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+
+.prose img {
+  @apply max-w-full rounded-lg shadow-md my-4;
+}
+
+.prose table {
+  @apply w-full border-collapse my-4;
+}
+
+.prose th,
+.prose td {
+  @apply border border-border p-2 text-left;
+}
+
+.prose th {
+  @apply bg-muted font-bold;
+}
+
+@media print {
+  @page {
+    margin: 1.5cm;
+  }
+
+  /* Force background layout and heights to auto so the browser knows how many pages there are */
+  html,
+  body,
+  main,
+  div {
+    height: auto !important;
+    overflow: visible !important;
+    background-color: white !important;
+    color: black !important;
+  }
+
+  /* Hide unnecessary app UI elements */
+  .w-64,
+  /* Sidebar */
+  header,
+  nav,
+  button,
+  /* All buttons including the toolbar */
+  .monaco-editor,
+  .bg-muted\/30
+
+  /* Toolbar container */
+    {
+    display: none !important;
+  }
+
+  /* Make sure the main content window occupies exactly 100% of the page size */
+  div:has(> .prose) {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Override dark mode text and apply explicit printing ink colors */
+  .prose,
+  .prose-invert,
+  .prose * {
+    color: black !important;
+    text-shadow: none !important;
+    background: transparent !important;
+  }
+
+  .prose {
+    font-size: 9pt !important;
+    line-height: 1.4 !important;
+  }
+
+  .prose h1 {
+    font-size: 18pt !important;
+    border-bottom: none !important;
+    margin-top: 14pt !important;
+    margin-bottom: 8pt !important;
+  }
+
+  .prose h2 {
+    font-size: 14pt !important;
+    border-bottom: none !important;
+    margin-top: 12pt !important;
+    margin-bottom: 6pt !important;
+  }
+
+  .prose h3 {
+    font-size: 12pt !important;
+    margin-top: 10pt !important;
+    margin-bottom: 5pt !important;
+  }
+
+  .prose h4,
+  .prose h5,
+  .prose h6 {
+    font-size: 9pt !important;
+    font-weight: bold !important;
+    margin-top: 8pt !important;
+    margin-bottom: 4pt !important;
+  }
+
+
+  /* Code block specific formatting */
+  .prose pre {
+    background: #f5f5f5 !important;
+    border: 1px solid #ddd !important;
+    color: black !important;
+    page-break-inside: avoid;
+    white-space: pre-wrap !important;
+  }
+
+  .prose code {
+    background: #f5f5f5 !important;
+    color: #444 !important;
+  }
+
+  /* Don't cut elements in half across pages */
+  .prose img,
+  .prose table,
+  .prose blockquote {
+    page-break-inside: avoid;
+  }
+}

@@ -1,0 +1,14 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Enable hot module replacement for Next.js in Docker
+ENV CHOKIDAR_USEPOLLING=true
+
+# Copy package files (we'll mount the rest of the source)
+COPY package.json package-lock.json* ./
+RUN npm install
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]
