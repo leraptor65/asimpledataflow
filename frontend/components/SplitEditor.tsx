@@ -1,7 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2 } from "lucide-react";
+import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2, ArrowUpRight } from "lucide-react";
+import { loader } from "@monaco-editor/react";
+
+// Self-host Monaco Editor: dynamically import to avoid SSR window errors
+if (typeof window !== "undefined") {
+    import("monaco-editor").then((monaco) => {
+        loader.config({ monaco });
+    });
+}
+
 import Editor, { DiffEditor } from "@monaco-editor/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -17,6 +26,7 @@ interface SplitEditorProps {
     note: any | null;
     onSave: (originalFilename: string, newFilename: string, content: string) => void;
     onDirtyChange?: (dirty: boolean) => void;
+    onSelectNote?: (filename: string) => void;
 }
 
 const PreCode = ({ children, ...props }: any) => {
@@ -57,7 +67,14 @@ const PreCode = ({ children, ...props }: any) => {
     );
 };
 
-export default function SplitEditor({ note, onSave, onDirtyChange }: SplitEditorProps) {
+// Convert [[Wiki Link]] syntax to markdown links
+function processWikiLinks(text: string): string {
+    return text.replace(/\[\[([^\]]+)\]\]/g, (_, name) => {
+        return `[${name}](wikilink://${encodeURIComponent(name)})`;
+    });
+}
+
+export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote }: SplitEditorProps) {
     const [content, setContent] = useState("");
     const [originalContent, setOriginalContent] = useState("");
     const [isDirty, setIsDirty] = useState(false);
@@ -83,6 +100,8 @@ export default function SplitEditor({ note, onSave, onDirtyChange }: SplitEditor
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [shareUrl, setShareUrl] = useState("");
     const [shareCopied, setShareCopied] = useState(false);
+    const [backlinks, setBacklinks] = useState<any[]>([]);
+    const [showBacklinks, setShowBacklinks] = useState(true);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -93,6 +112,21 @@ export default function SplitEditor({ note, onSave, onDirtyChange }: SplitEditor
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    // Fetch backlinks for this note
+    useEffect(() => {
+        if (!note || !note.filename) { setBacklinks([]); return; }
+        const fetchBacklinks = async () => {
+            try {
+                const res = await fetch(`/api/backlinks?file=${encodeURIComponent(note.filename)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setBacklinks(data || []);
+                }
+            } catch (e) { console.error(e); }
+        };
+        fetchBacklinks();
+    }, [note]);
 
     const handleGenerateLink = async () => {
         if (!note || !note.filename) return;
@@ -534,10 +568,30 @@ export default function SplitEditor({ note, onSave, onDirtyChange }: SplitEditor
                                         remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
                                         rehypePlugins={[rehypeHighlight, rehypeKatex]}
                                         components={{
-                                            pre: PreCode
+                                            pre: PreCode,
+                                            a: ({ href, children, ...props }: any) => {
+                                                if (href?.startsWith('wikilink://')) {
+                                                    const noteName = decodeURIComponent(href.replace('wikilink://', ''));
+                                                    return (
+                                                        <a
+                                                            href="#"
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                const filename = noteName.endsWith('.md') ? noteName : `${noteName}.md`;
+                                                                onSelectNote?.(filename);
+                                                            }}
+                                                            className="text-primary hover:underline cursor-pointer"
+                                                            {...props}
+                                                        >
+                                                            {children}
+                                                        </a>
+                                                    );
+                                                }
+                                                return <a href={href} target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+                                            }
                                         }}
                                     >
-                                        {content || "*Empty note*"}
+                                        {processWikiLinks(content) || "*Empty note*"}
                                     </ReactMarkdown>
                                 </div>
                             </div>
@@ -545,6 +599,30 @@ export default function SplitEditor({ note, onSave, onDirtyChange }: SplitEditor
                     </>
                 )}
             </div>
+
+            {/* Backlinks Panel */}
+            {backlinks.length > 0 && showBacklinks && !diffMode && !syncDiffMode && (
+                <div className="border-t border-border bg-muted/30">
+                    <button
+                        onClick={() => setShowBacklinks(!showBacklinks)}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition"
+                    >
+                        <ArrowUpRight size={14} />
+                        {backlinks.length} Backlink{backlinks.length !== 1 ? 's' : ''}
+                    </button>
+                    <div className="px-4 pb-3 flex flex-wrap gap-2">
+                        {backlinks.map((bl: any) => (
+                            <button
+                                key={bl.filename}
+                                onClick={() => onSelectNote?.(bl.filename)}
+                                className="text-xs bg-primary/10 text-primary px-2 py-1 rounded hover:bg-primary/20 transition"
+                            >
+                                {bl.title || bl.filename.replace('.md', '')}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {showHistory && (
                 <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-50">

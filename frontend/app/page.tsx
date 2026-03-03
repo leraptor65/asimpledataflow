@@ -179,6 +179,7 @@ export default function Home() {
           note={selectedNote}
           onSave={handleSaveNote}
           onDirtyChange={setIsEditorDirty}
+          onSelectNote={handleSelectNote}
         />
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">

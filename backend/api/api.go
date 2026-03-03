@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -66,6 +67,16 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Delete("/api/share/{token}", a.HandleRevokeShareLink)
 	r.Put("/api/share/{token}", a.HandleUpdateShareLink)
 	r.Get("/api/shared/{token}", a.HandleViewSharedNote)
+
+	// Image serving
+	r.Get("/images/*", a.HandleServeImage)
+
+	// Orphan image cleanup
+	r.Get("/api/orphan-images", a.HandleGetOrphanImages)
+	r.Delete("/api/orphan-images", a.HandleDeleteOrphanImages)
+
+	// Backlinks
+	r.Get("/api/backlinks", a.HandleGetBacklinks)
 }
 
 func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +199,7 @@ func (a *API) HandleUploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	imagesDir := filepath.Join(a.dataDir, "images")
+	imagesDir := filepath.Join(a.dataDir, ".images")
 	os.MkdirAll(imagesDir, 0755)
 
 	dstPath := filepath.Join(imagesDir, handler.Filename)
@@ -205,7 +216,7 @@ func (a *API) HandleUploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	git := gitops.NewGitManager(a.dataDir)
-	git.CommitFile(filepath.Join("images", handler.Filename), "Upload image "+handler.Filename)
+	git.CommitFile(filepath.Join(".images", handler.Filename), "Upload image "+handler.Filename)
 
 	json.NewEncoder(w).Encode(map[string]string{
 		"url": "/images/" + handler.Filename,
@@ -800,4 +811,157 @@ func (a *API) HandleViewSharedNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(n)
+}
+
+func (a *API) HandleServeImage(w http.ResponseWriter, r *http.Request) {
+	imagePath := chi.URLParam(r, "*")
+	if imagePath == "" {
+		http.Error(w, "Image path required", http.StatusBadRequest)
+		return
+	}
+
+	fullPath := filepath.Join(a.dataDir, ".images", imagePath)
+
+	// Security check: prevent path traversal
+	cleanPath := filepath.Clean(fullPath)
+	if !strings.HasPrefix(cleanPath, filepath.Join(a.dataDir, ".images")) {
+		http.Error(w, "Invalid path", http.StatusForbidden)
+		return
+	}
+
+	http.ServeFile(w, r, cleanPath)
+}
+
+var imageRefRegex = regexp.MustCompile(`!\[.*?\]\(/images/([^)]+)\)`)
+
+func (a *API) HandleGetOrphanImages(w http.ResponseWriter, r *http.Request) {
+	// 1. Get all images on disk
+	imagesDir := filepath.Join(a.dataDir, ".images")
+	diskImages := map[string]bool{}
+
+	entries, err := os.ReadDir(imagesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"orphaned": []string{},
+				"total":    0,
+			})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			diskImages[entry.Name()] = true
+		}
+	}
+
+	// 2. Scan all note content for image references
+	rows, err := a.db.Query("SELECT content FROM notes")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	referencedImages := map[string]bool{}
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			continue
+		}
+		matches := imageRefRegex.FindAllStringSubmatch(content, -1)
+		for _, match := range matches {
+			if len(match) > 1 {
+				referencedImages[match[1]] = true
+			}
+		}
+	}
+
+	// 3. Find orphaned images (on disk but not referenced)
+	var orphaned []string
+	for img := range diskImages {
+		if !referencedImages[img] {
+			orphaned = append(orphaned, img)
+		}
+	}
+
+	if orphaned == nil {
+		orphaned = []string{}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"orphaned": orphaned,
+		"total":    len(diskImages),
+	})
+}
+
+func (a *API) HandleDeleteOrphanImages(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Images []string `json:"images"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	imagesDir := filepath.Join(a.dataDir, ".images")
+	var deleted []string
+	for _, img := range req.Images {
+		// Security: only allow filenames, no path traversal
+		if strings.Contains(img, "/") || strings.Contains(img, "..") {
+			continue
+		}
+		fullPath := filepath.Join(imagesDir, img)
+		if err := os.Remove(fullPath); err == nil {
+			deleted = append(deleted, img)
+		}
+	}
+
+	if len(deleted) > 0 {
+		git := gitops.NewGitManager(a.dataDir)
+		git.CommitAll("Cleanup orphan images")
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"deleted": deleted,
+	})
+}
+
+func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
+	filename := r.URL.Query().Get("file")
+	if filename == "" {
+		http.Error(w, "file parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Find notes whose content contains [[title]] where title matches this note
+	title := strings.TrimSuffix(filepath.Base(filename), ".md")
+
+	rows, err := a.db.Query(`
+		SELECT id, filename, title, COALESCE(frontmatter, '{}'), last_modified
+		FROM notes 
+		WHERE content LIKE '%[[' || $1 || ']]%' 
+		AND filename != $2
+	`, title, filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var notes []models.Note
+	for rows.Next() {
+		var n models.Note
+		if err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.LastModified); err == nil {
+			notes = append(notes, n)
+		}
+	}
+
+	if notes == nil {
+		notes = []models.Note{}
+	}
+	json.NewEncoder(w).Encode(notes)
 }

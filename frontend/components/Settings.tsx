@@ -18,11 +18,17 @@ export default function Settings() {
     const [syncInterval, setSyncInterval] = useState("0");
     const [sharedLinks, setSharedLinks] = useState<SharedLink[]>([]);
     const [copiedToken, setCopiedToken] = useState<string | null>(null);
+    const [orphanImages, setOrphanImages] = useState<string[]>([]);
+    const [showOrphanModal, setShowOrphanModal] = useState(false);
+    const [totalImages, setTotalImages] = useState(0);
+    const [biLinks, setBiLinks] = useState(true);
 
     useEffect(() => {
         setMounted(true);
         const savedSync = localStorage.getItem("asdf_auto_sync_interval");
         if (savedSync) setSyncInterval(savedSync);
+        const savedBiLinks = localStorage.getItem("asdf_bidirectional_links");
+        setBiLinks(savedBiLinks !== "false");
         fetchSharedLinks();
     }, []);
 
@@ -60,6 +66,30 @@ export default function Settings() {
         navigator.clipboard.writeText(url);
         setCopiedToken(token);
         setTimeout(() => setCopiedToken(null), 2000);
+    };
+
+    const handleScanOrphans = async () => {
+        try {
+            const res = await fetch("/api/orphan-images");
+            if (res.ok) {
+                const data = await res.json();
+                setOrphanImages(data.orphaned || []);
+                setTotalImages(data.total || 0);
+                setShowOrphanModal(true);
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    const handleDeleteOrphans = async () => {
+        try {
+            await fetch("/api/orphan-images", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ images: orphanImages }),
+            });
+            setShowOrphanModal(false);
+            setOrphanImages([]);
+        } catch (e) { console.error(e); }
     };
 
     const isExpired = (link: SharedLink) => {
@@ -207,7 +237,10 @@ export default function Settings() {
                                 <h3 className="font-medium text-foreground">Orphan Image Cleanup</h3>
                                 <p className="text-sm text-muted-foreground mt-1">Remove images from the data directory<br />that are no longer referenced in any markdown notes.</p>
                             </div>
-                            <button className="flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-md transition-colors opacity-50 cursor-not-allowed" title="Not yet implemented">
+                            <button
+                                onClick={handleScanOrphans}
+                                className="flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-md transition-colors"
+                            >
                                 <Trash2 size={16} />
                                 Cleanup Images
                             </button>
@@ -255,11 +288,64 @@ export default function Settings() {
                         </div>
                         <div className="flex items-center justify-between py-3">
                             <span className="text-foreground text-sm font-medium">Enable Bidirectional Links</span>
-                            <input type="checkbox" className="w-4 h-4 rounded border-input bg-background" disabled />
+                            <input
+                                type="checkbox"
+                                className="w-4 h-4 rounded border-input bg-background"
+                                checked={biLinks}
+                                onChange={(e) => {
+                                    setBiLinks(e.target.checked);
+                                    localStorage.setItem("asdf_bidirectional_links", String(e.target.checked));
+                                }}
+                            />
                         </div>
                     </section>
                 </div>
             </div>
+
+            {/* Orphan Image Cleanup Modal */}
+            {showOrphanModal && (
+                <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-[100]">
+                    <div className="bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-xl">
+                        <h3 className="text-lg font-bold mb-2">Orphan Image Cleanup</h3>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            Found {totalImages} total images. {orphanImages.length} orphaned (not referenced in any note).
+                        </p>
+                        {orphanImages.length === 0 ? (
+                            <>
+                                <p className="text-sm text-green-500 text-center py-4">No orphaned images found!</p>
+                                <button
+                                    onClick={() => setShowOrphanModal(false)}
+                                    className="w-full px-4 py-2 bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 transition"
+                                >
+                                    Close
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <div className="max-h-48 overflow-y-auto border border-border rounded p-2 mb-4 space-y-1">
+                                    {orphanImages.map((img) => (
+                                        <div key={img} className="text-xs text-muted-foreground font-mono truncate">{img}</div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowOrphanModal(false)}
+                                        className="flex-1 px-4 py-2 bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 transition"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleDeleteOrphans}
+                                        className="flex-1 px-4 py-2 bg-destructive text-destructive-foreground rounded hover:opacity-90 transition"
+                                    >
+                                        Delete {orphanImages.length} Image{orphanImages.length !== 1 ? 's' : ''}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
