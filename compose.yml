@@ -1,10 +1,10 @@
 version: '3.8'
 
 services:
-  backend:
-    image: leraptor65/asimpledataflow:latest-backend
+  app:
+    image: leraptor65/asimpledataflow:latest
     ports:
-      - "8080:8080"
+      - "3000:3000"
     volumes:
       - asdf-data:/app/data
     environment:
@@ -14,16 +14,6 @@ services:
       - DB_NAME=notesdb
     depends_on:
       - postgres
-    restart: unless-stopped
-
-  frontend:
-    image: leraptor65/asimpledataflow:latest-frontend
-    ports:
-      - "3000:3000"
-    environment:
-      - BACKEND_URL=http://backend:8080
-    depends_on:
-      - backend
     restart: unless-stopped
 
   postgres:
