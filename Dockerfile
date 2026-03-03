@@ -39,7 +39,7 @@ COPY --from=backend-builder /app/backend/simple-data-flow /app/backend-server
 # Copy the Next.js standalone frontend
 COPY --from=frontend-builder /app/frontend/.next/standalone ./
 COPY --from=frontend-builder /app/frontend/.next/static ./.next/static
-COPY --from=frontend-builder /app/frontend/public ./public
+# COPY --from=frontend-builder /app/frontend/public ./public
 
 # Setup the orchestrator script
 COPY start.sh /app/start.sh

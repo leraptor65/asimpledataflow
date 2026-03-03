@@ -314,7 +314,7 @@ function MoveModal({
     return (
         <div className="fixed inset-0 z-[100] bg-background/80 flex items-center justify-center p-4">
             <div className="bg-popover border border-border shadow-lg rounded-md p-4 w-full max-w-md flex flex-col max-h-[80vh]">
-                <h2 className="font-bold text-lg mb-4 text-popover-foreground truncate">Move '{itemToMove.name}' To...</h2>
+                <h2 className="font-bold text-lg mb-4 text-popover-foreground truncate">Move &apos;{itemToMove.name}&apos; To...</h2>
                 <div className="flex-1 overflow-y-auto border border-border rounded-md py-2 bg-background">
                     <button
                         onClick={() => onMove("")}

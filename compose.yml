@@ -6,7 +6,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - asdf-data:/app/data
+      - ./notes:/app/data
     environment:
       - DB_HOST=postgres
       - DB_USER=appuser
@@ -28,4 +28,3 @@ services:
 
 volumes:
   pgdata:
-  asdf-data:
