@@ -19,6 +19,7 @@ import remarkBreaks from "remark-breaks";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import "highlight.js/styles/github-dark.css";
+import hljs from "highlight.js/lib/common";
 import "katex/dist/katex.min.css";
 import EditorToolbar from "./EditorToolbar";
 
@@ -67,10 +68,11 @@ const PreCode = ({ children, ...props }: any) => {
     );
 };
 
-// Convert [[Wiki Link]] syntax to markdown links
+// Convert [[Wiki Link]] syntax to markdown links using /notes/ paths
 function processWikiLinks(text: string): string {
     return text.replace(/\[\[([^\]]+)\]\]/g, (_, name) => {
-        return `[${name}](wikilink://${encodeURIComponent(name)})`;
+        const filename = name.endsWith('.md') ? name : `${name}.md`;
+        return `[${name}](/notes/${encodeURIComponent(filename)})`;
     });
 }
 
@@ -566,18 +568,17 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                                 <div className="prose prose-invert max-w-none">
                                     <ReactMarkdown
                                         remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
-                                        rehypePlugins={[rehypeHighlight, rehypeKatex]}
+                                        rehypePlugins={[[rehypeHighlight, { detect: true }], rehypeKatex]}
                                         components={{
                                             pre: PreCode,
                                             a: ({ href, children }: any) => {
-                                                if (href?.startsWith('wikilink://')) {
-                                                    const noteName = decodeURIComponent(href.replace('wikilink://', ''));
+                                                if (href?.startsWith('/notes/')) {
                                                     return (
                                                         <span
                                                             onClick={(e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
-                                                                const filename = noteName.endsWith('.md') ? noteName : `${noteName}.md`;
+                                                                const filename = decodeURIComponent(href.replace('/notes/', ''));
                                                                 onSelectNote?.(filename);
                                                             }}
                                                             className="text-primary hover:underline cursor-pointer"

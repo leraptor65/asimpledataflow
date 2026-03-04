@@ -67,6 +67,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Delete("/api/share/{token}", a.HandleRevokeShareLink)
 	r.Put("/api/share/{token}", a.HandleUpdateShareLink)
 	r.Get("/api/shared/{token}", a.HandleViewSharedNote)
+	r.Get("/api/shared/{token}/linked/{filename}", a.HandleViewSharedLinkedNote)
 
 	// Image serving
 	r.Get("/images/*", a.HandleServeImage)
@@ -805,6 +806,97 @@ func (a *API) HandleViewSharedNote(w http.ResponseWriter, r *http.Request) {
 		n.Filename = link.Filename
 		n.Content = string(content)
 		n.Title = link.Filename
+	} else if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(n)
+}
+
+var sharedWikiLinkRegex = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
+
+func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	requestedFile := chi.URLParam(r, "filename")
+
+	// 1. Validate the share token
+	var link models.SharedLink
+	err := a.db.QueryRow(
+		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = $1", token,
+	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		http.Error(w, "Link not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Check expiration
+	if link.ExpiresAt != nil && time.Now().After(*link.ExpiresAt) {
+		http.Error(w, "This shared link has expired", http.StatusGone)
+		return
+	}
+
+	// 3. Fetch the PARENT shared note content to check for [[...]] reference
+	var parentContent string
+	err = a.db.QueryRow("SELECT content FROM notes WHERE filename = $1", link.Filename).Scan(&parentContent)
+	if err != nil {
+		// Fallback to disk
+		path := filepath.Join(a.dataDir, link.Filename)
+		contentBytes, readErr := os.ReadFile(path)
+		if readErr != nil {
+			http.Error(w, "Parent note not found", http.StatusNotFound)
+			return
+		}
+		parentContent = string(contentBytes)
+	}
+
+	// 4. Check that the requested file is actually referenced via [[...]] in the parent
+	matches := sharedWikiLinkRegex.FindAllStringSubmatch(parentContent, -1)
+	allowed := false
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		refName := match[1]
+		// Match with or without .md extension
+		if refName == requestedFile ||
+			refName+".md" == requestedFile ||
+			refName == strings.TrimSuffix(requestedFile, ".md") {
+			allowed = true
+			break
+		}
+	}
+
+	if !allowed {
+		http.Error(w, "This note is not linked from the shared note", http.StatusForbidden)
+		return
+	}
+
+	// 5. Fetch the linked note
+	targetFilename := requestedFile
+	if !strings.HasSuffix(targetFilename, ".md") {
+		targetFilename += ".md"
+	}
+
+	var n models.Note
+	err = a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes WHERE filename = $1", targetFilename).
+		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified)
+
+	if err == sql.ErrNoRows {
+		path := filepath.Join(a.dataDir, targetFilename)
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			http.Error(w, "Linked note not found", http.StatusNotFound)
+			return
+		}
+		n.Filename = targetFilename
+		n.Content = string(content)
+		n.Title = strings.TrimSuffix(filepath.Base(targetFilename), ".md")
 	} else if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

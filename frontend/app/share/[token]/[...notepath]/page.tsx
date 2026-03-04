@@ -11,7 +11,8 @@ import rehypeKatex from "rehype-katex";
 import "highlight.js/styles/github-dark.css";
 import "highlight.js/lib/common";
 import "katex/dist/katex.min.css";
-import { FileText, AlertCircle, Clock } from "lucide-react";
+import { FileText, AlertCircle, Clock, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 // Convert [[Wiki Link]] syntax to links within the shared context
 function processSharedWikiLinks(text: string, token: string): string {
@@ -21,9 +22,10 @@ function processSharedWikiLinks(text: string, token: string): string {
     });
 }
 
-export default function SharedNotePage() {
+export default function SharedLinkedNotePage() {
     const params = useParams();
     const token = params.token as string;
+    const notepath = (params.notepath as string[]).join("/");
 
     const [note, setNote] = useState<any | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -32,25 +34,27 @@ export default function SharedNotePage() {
     useEffect(() => {
         const fetchNote = async () => {
             try {
-                const res = await fetch(`/api/shared/${token}`);
+                const res = await fetch(`/api/shared/${token}/linked/${encodeURIComponent(notepath)}`);
                 if (res.ok) {
                     const data = await res.json();
                     setNote(data);
                 } else if (res.status === 410) {
                     setError("This shared link has expired.");
+                } else if (res.status === 403) {
+                    setError("This note is not accessible through this shared link.");
                 } else if (res.status === 404) {
-                    setError("This shared link was not found or has been revoked.");
+                    setError("This linked note was not found.");
                 } else {
                     setError("Something went wrong loading this note.");
                 }
             } catch (e) {
-                setError("Failed to load shared note.");
+                setError("Failed to load linked note.");
             } finally {
                 setLoading(false);
             }
         };
         fetchNote();
-    }, [token]);
+    }, [token, notepath]);
 
     if (loading) {
         return (
@@ -72,9 +76,12 @@ export default function SharedNotePage() {
                         )}
                     </div>
                     <h1 className="text-2xl font-bold mb-2">
-                        {error.includes("expired") ? "Link Expired" : "Link Not Found"}
+                        {error.includes("expired") ? "Link Expired" : error.includes("not accessible") ? "Access Denied" : "Not Found"}
                     </h1>
-                    <p className="text-muted-foreground">{error}</p>
+                    <p className="text-muted-foreground mb-4">{error}</p>
+                    <Link href={`/share/${token}`} className="text-primary hover:underline text-sm">
+                        ← Back to shared note
+                    </Link>
                 </div>
             </div>
         );
@@ -84,6 +91,9 @@ export default function SharedNotePage() {
         <div className="min-h-screen bg-background text-foreground">
             <div className="max-w-4xl mx-auto">
                 <div className="flex items-center gap-3 p-6 border-b border-border">
+                    <Link href={`/share/${token}`} className="text-muted-foreground hover:text-foreground transition">
+                        <ArrowLeft size={20} />
+                    </Link>
                     <FileText size={24} className="text-primary" />
                     <h1 className="text-2xl font-bold">{note?.title || note?.filename?.replace(".md", "")}</h1>
                 </div>
