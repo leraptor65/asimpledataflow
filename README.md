@@ -125,6 +125,7 @@ asdf.example.com {
     @not_shared {
         not path /share/*
         not path /api/shared/*
+        not path /_next/static/*
     }
     handle @not_shared {
         # ... authentik config ...
@@ -147,6 +148,9 @@ server {
     location /api/shared/ {
         proxy_pass http://127.0.0.1:3000;
     }
+    location /_next/static/ {
+        proxy_pass http://127.0.0.1:3000;
+    }
 
     # Everything else goes through Authentik
     location / {
@@ -167,6 +171,7 @@ server {
    - **Selector**: Path
    - Starts with `/share/`
    - Starts with `/api/shared/`
+   - Starts with `/_next/static/`
 
 ### Authelia
 
@@ -178,6 +183,7 @@ access_control:
       resources:
         - "^/share/.*$"
         - "^/api/shared/.*$"
+        - "^/_next/static/.*$"
       policy: bypass
 
     # Require auth for everything else
