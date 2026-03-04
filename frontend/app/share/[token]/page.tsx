@@ -21,6 +21,13 @@ function processSharedWikiLinks(text: string, token: string): string {
     });
 }
 
+// Rewrite image URLs to go through the token-validated shared image endpoint
+function rewriteSharedImages(text: string, token: string): string {
+    return text.replace(/!\[([^\]]*)\]\(\/images\/([^)]+)\)/g, (_, alt, imageName) => {
+        return `![${alt}](/api/shared/${token}/images/${imageName})`;
+    });
+}
+
 export default function SharedNotePage() {
     const params = useParams();
     const token = params.token as string;
@@ -93,7 +100,7 @@ export default function SharedNotePage() {
                             remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
                             rehypePlugins={[[rehypeHighlight, { detect: true }], rehypeKatex]}
                         >
-                            {processSharedWikiLinks(note?.content || "*Empty note*", token)}
+                            {rewriteSharedImages(processSharedWikiLinks(note?.content || "*Empty note*", token), token)}
                         </ReactMarkdown>
                     </div>
                 </div>

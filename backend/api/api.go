@@ -113,6 +113,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Put("/api/share/{token}", a.HandleUpdateShareLink)
 	r.Get("/api/shared/{token}", a.HandleViewSharedNote)
 	r.Get("/api/shared/{token}/linked/{filename}", a.HandleViewSharedLinkedNote)
+	r.Get("/api/shared/{token}/images/*", a.HandleServeSharedImage)
 
 	// Image serving
 	r.Get("/images/*", a.HandleServeImage)
@@ -1108,6 +1109,79 @@ func (a *API) HandleServeImage(w http.ResponseWriter, r *http.Request) {
 	fullPath := filepath.Join(a.dataDir, ".images", imagePath)
 
 	// Security check: prevent path traversal
+	cleanPath := filepath.Clean(fullPath)
+	if !strings.HasPrefix(cleanPath, filepath.Join(a.dataDir, ".images")) {
+		http.Error(w, "Invalid path", http.StatusForbidden)
+		return
+	}
+
+	http.ServeFile(w, r, cleanPath)
+}
+
+// HandleServeSharedImage serves images referenced in a shared note, validated by token.
+func (a *API) HandleServeSharedImage(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	imageName := chi.URLParam(r, "*")
+	if imageName == "" {
+		http.Error(w, "Image path required", http.StatusBadRequest)
+		return
+	}
+
+	// 1. Validate the share token
+	var link models.SharedLink
+	err := a.db.QueryRow(
+		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = $1", token,
+	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		http.Error(w, "Link not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("HandleServeSharedImage: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Check expiration
+	if link.ExpiresAt != nil && time.Now().After(*link.ExpiresAt) {
+		http.Error(w, "This shared link has expired", http.StatusGone)
+		return
+	}
+
+	// 3. Fetch the shared note content to verify the image is referenced
+	var noteContent string
+	err = a.db.QueryRow("SELECT content FROM notes WHERE filename = $1", link.Filename).Scan(&noteContent)
+	if err != nil {
+		// Fallback to disk
+		notePath, pathErr := safePath(a.dataDir, link.Filename)
+		if pathErr != nil {
+			http.Error(w, "Note not found", http.StatusNotFound)
+			return
+		}
+		contentBytes, readErr := os.ReadFile(notePath)
+		if readErr != nil {
+			http.Error(w, "Note not found", http.StatusNotFound)
+			return
+		}
+		noteContent = string(contentBytes)
+	}
+
+	// 4. Verify this image is referenced in the note content
+	safeImage := sanitizeFilename(imageName)
+	if safeImage == "" {
+		http.Error(w, "Invalid image name", http.StatusBadRequest)
+		return
+	}
+
+	// Check for /images/NAME in the note content
+	if !strings.Contains(noteContent, "/images/"+safeImage) {
+		http.Error(w, "Image not found in shared note", http.StatusForbidden)
+		return
+	}
+
+	// 5. Serve the image
+	fullPath := filepath.Join(a.dataDir, ".images", safeImage)
 	cleanPath := filepath.Clean(fullPath)
 	if !strings.HasPrefix(cleanPath, filepath.Join(a.dataDir, ".images")) {
 		http.Error(w, "Invalid path", http.StatusForbidden)
