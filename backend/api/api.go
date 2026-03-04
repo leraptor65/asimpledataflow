@@ -5,11 +5,14 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -19,6 +22,48 @@ import (
 	"github.com/leraptor65/simple-data-flow/gitops"
 	"github.com/leraptor65/simple-data-flow/models"
 )
+
+const maxJSONBodySize = 1 << 20     // 1 MB
+const maxImageUploadSize = 10 << 20 // 10 MB
+
+var validGitHash = regexp.MustCompile(`^[0-9a-f]{4,40}$`)
+
+// safePath validates that a user-supplied relative path resolves within baseDir.
+// Returns the cleaned absolute path or an error if traversal is detected.
+func safePath(baseDir, userPath string) (string, error) {
+	// Clean the user path to remove any ../ or ./ components
+	cleaned := filepath.Clean(userPath)
+	// Reject absolute paths or paths that escape via ..
+	if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+		return "", fmt.Errorf("invalid path")
+	}
+	full := filepath.Join(baseDir, cleaned)
+	// Double-check the resolved path is within baseDir
+	if !strings.HasPrefix(full, filepath.Clean(baseDir)+string(os.PathSeparator)) && full != filepath.Clean(baseDir) {
+		return "", fmt.Errorf("invalid path")
+	}
+	return full, nil
+}
+
+// sanitizeFilename strips directory components and rejects dangerous filenames.
+func sanitizeFilename(name string) string {
+	// Use path.Base (not filepath.Base) to handle both / and \ separators
+	clean := path.Base(name)
+	if clean == "." || clean == ".." || clean == "/" {
+		return ""
+	}
+	return clean
+}
+
+// setJSON sets the Content-Type header to application/json.
+func setJSON(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+}
+
+// limitBody wraps the request body with a max byte reader.
+func limitBody(r *http.Request, maxBytes int64) {
+	r.Body = http.MaxBytesReader(nil, r.Body, maxBytes)
+}
 
 type TreeItem struct {
 	Name         string      `json:"name"`
@@ -83,7 +128,8 @@ func (a *API) RegisterRoutes(r chi.Router) {
 func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes ORDER BY last_modified DESC")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleListNotes: %v", err)
+		http.Error(w, "Failed to list notes", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -97,6 +143,7 @@ func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
 		notes = append(notes, n)
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(notes)
 }
 
@@ -113,7 +160,11 @@ func (a *API) HandleGetNote(w http.ResponseWriter, r *http.Request) {
 
 	if err == sql.ErrNoRows {
 		// Try falling back to disk if watcher hasn't caught it yet
-		path := filepath.Join(a.dataDir, filename)
+		path, pathErr := safePath(a.dataDir, filename)
+		if pathErr != nil {
+			http.Error(w, "Invalid path", http.StatusBadRequest)
+			return
+		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			http.Error(w, "Note not found", http.StatusNotFound)
@@ -123,10 +174,12 @@ func (a *API) HandleGetNote(w http.ResponseWriter, r *http.Request) {
 		n.Content = string(content)
 		n.Title = filename
 	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleGetNote: %v", err)
+		http.Error(w, "Failed to get note", http.StatusInternalServerError)
 		return
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(n)
 }
 
@@ -137,19 +190,24 @@ func (a *API) HandleSaveNote(w http.ResponseWriter, r *http.Request) {
 	}
 	filename, _ = url.PathUnescape(filename)
 
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	path := filepath.Join(a.dataDir, filename)
-
-	err := os.WriteFile(path, []byte(req.Content), 0644)
+	path, err := safePath(a.dataDir, filename)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if writeErr := os.WriteFile(path, []byte(req.Content), 0644); writeErr != nil {
+		log.Printf("HandleSaveNote: %v", writeErr)
+		http.Error(w, "Failed to save note", http.StatusInternalServerError)
 		return
 	}
 
@@ -175,7 +233,8 @@ func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
 	`, query)
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleSearchNotes: %v", err)
+		http.Error(w, "Search failed", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -189,10 +248,12 @@ func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(notes)
 }
 
 func (a *API) HandleUploadImage(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageUploadSize)
 	file, handler, err := r.FormFile("image")
 	if err != nil {
 		http.Error(w, "Error retrieving image", http.StatusBadRequest)
@@ -200,44 +261,67 @@ func (a *API) HandleUploadImage(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// Sanitize filename — strip any directory components
+	safeFilename := sanitizeFilename(handler.Filename)
+	if safeFilename == "" {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	// Validate file extension
+	ext := strings.ToLower(filepath.Ext(safeFilename))
+	allowedExts := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".svg": true, ".bmp": true}
+	if !allowedExts[ext] {
+		http.Error(w, "File type not allowed", http.StatusBadRequest)
+		return
+	}
+
 	imagesDir := filepath.Join(a.dataDir, ".images")
 	os.MkdirAll(imagesDir, 0755)
 
-	dstPath := filepath.Join(imagesDir, handler.Filename)
+	dstPath := filepath.Join(imagesDir, safeFilename)
 	dst, err := os.Create(dstPath)
 	if err != nil {
+		log.Printf("HandleUploadImage: %v", err)
 		http.Error(w, "Error saving file", http.StatusInternalServerError)
 		return
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
+		log.Printf("HandleUploadImage write: %v", err)
 		http.Error(w, "Error writing file", http.StatusInternalServerError)
 		return
 	}
 
 	git := gitops.NewGitManager(a.dataDir)
-	git.CommitFile(filepath.Join(".images", handler.Filename), "Upload image "+handler.Filename)
+	git.CommitFile(filepath.Join(".images", safeFilename), "Upload image "+safeFilename)
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(map[string]string{
-		"url": "/images/" + handler.Filename,
+		"url": "/images/" + safeFilename,
 	})
 }
 
 func (a *API) HandleCreateFolder(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Path string `json:"path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	fullPath := filepath.Join(a.dataDir, req.Path)
-
-	err := os.MkdirAll(fullPath, 0755)
+	fullPath, err := safePath(a.dataDir, req.Path)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if mkErr := os.MkdirAll(fullPath, 0755); mkErr != nil {
+		log.Printf("HandleCreateFolder: %v", mkErr)
+		http.Error(w, "Failed to create folder", http.StatusInternalServerError)
 		return
 	}
 
@@ -252,21 +336,30 @@ func (a *API) HandleCreateFolder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) HandleMoveItem(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Source      string `json:"source"`
 		Destination string `json:"destination"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	srcPath := filepath.Join(a.dataDir, req.Source)
-	destPath := filepath.Join(a.dataDir, req.Destination)
-
-	err := os.Rename(srcPath, destPath)
+	srcPath, err := safePath(a.dataDir, req.Source)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Invalid source path", http.StatusBadRequest)
+		return
+	}
+	destPath, err := safePath(a.dataDir, req.Destination)
+	if err != nil {
+		http.Error(w, "Invalid destination path", http.StatusBadRequest)
+		return
+	}
+
+	if renameErr := os.Rename(srcPath, destPath); renameErr != nil {
+		log.Printf("HandleMoveItem: %v", renameErr)
+		http.Error(w, "Failed to move item", http.StatusInternalServerError)
 		return
 	}
 
@@ -277,19 +370,25 @@ func (a *API) HandleMoveItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) HandleDeleteItem(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Path string `json:"path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	sourcePath := filepath.Join(a.dataDir, req.Path)
-	recyclePath := filepath.Join(a.dataDir, ".recycle_bin")
+	sourcePath, err := safePath(a.dataDir, req.Path)
+	if err != nil {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
 
+	recyclePath := filepath.Join(a.dataDir, ".recycle_bin")
 	if err := os.MkdirAll(recyclePath, 0755); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleDeleteItem: %v", err)
+		http.Error(w, "Failed to delete item", http.StatusInternalServerError)
 		return
 	}
 
@@ -297,7 +396,8 @@ func (a *API) HandleDeleteItem(w http.ResponseWriter, r *http.Request) {
 
 	// Move file/folder to recycle bin
 	if err := os.Rename(sourcePath, destPath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleDeleteItem move: %v", err)
+		http.Error(w, "Failed to delete item", http.StatusInternalServerError)
 		return
 	}
 
@@ -388,10 +488,12 @@ func (a *API) HandleGetTree(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleGetTree: %v", err)
+		http.Error(w, "Failed to get tree", http.StatusInternalServerError)
 		return
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(root.Children)
 }
 
@@ -405,27 +507,36 @@ func (a *API) HandleGetHistory(w http.ResponseWriter, r *http.Request) {
 	git := gitops.NewGitManager(a.dataDir)
 	commits, err := git.GetFileHistory(filename)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleGetHistory: %v", err)
+		http.Error(w, "Failed to get history", http.StatusInternalServerError)
 		return
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(commits)
 }
 
 func (a *API) HandleRevertFile(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Hash     string `json:"hash"`
 		Filename string `json:"filename"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if !validGitHash.MatchString(req.Hash) {
+		http.Error(w, "Invalid hash", http.StatusBadRequest)
 		return
 	}
 
 	git := gitops.NewGitManager(a.dataDir)
 	err := git.CheckoutFile(req.Hash, req.Filename)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleRevertFile: %v", err)
+		http.Error(w, "Failed to revert file", http.StatusInternalServerError)
 		return
 	}
 
@@ -441,10 +552,16 @@ func (a *API) HandleGetHistoryContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !validGitHash.MatchString(hash) {
+		http.Error(w, "Invalid hash", http.StatusBadRequest)
+		return
+	}
+
 	git := gitops.NewGitManager(a.dataDir)
 	content, err := git.GetFileContentAtHash(hash, filename)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleGetHistoryContent: %v", err)
+		http.Error(w, "Failed to get content", http.StatusInternalServerError)
 		return
 	}
 
@@ -454,6 +571,7 @@ func (a *API) HandleGetHistoryContent(w http.ResponseWriter, r *http.Request) {
 func (a *API) HandleGetRecycleBin(w http.ResponseWriter, r *http.Request) {
 	recyclePath := filepath.Join(a.dataDir, ".recycle_bin")
 	if _, err := os.Stat(recyclePath); os.IsNotExist(err) {
+		setJSON(w)
 		json.NewEncoder(w).Encode([]TreeItem{})
 		return
 	}
@@ -461,7 +579,8 @@ func (a *API) HandleGetRecycleBin(w http.ResponseWriter, r *http.Request) {
 	var items []TreeItem
 	entries, err := os.ReadDir(recyclePath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleGetRecycleBin: %v", err)
+		http.Error(w, "Failed to get recycle bin", http.StatusInternalServerError)
 		return
 	}
 
@@ -477,44 +596,63 @@ func (a *API) HandleGetRecycleBin(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(items)
 }
 
 func (a *API) HandleRestoreRecycledItem(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	sourcePath := filepath.Join(a.dataDir, ".recycle_bin", req.Name)
-	destPath := filepath.Join(a.dataDir, req.Name)
+	// Sanitize: allow only a base filename, no path components
+	safeName := sanitizeFilename(req.Name)
+	if safeName == "" {
+		http.Error(w, "Invalid name", http.StatusBadRequest)
+		return
+	}
+
+	sourcePath := filepath.Join(a.dataDir, ".recycle_bin", safeName)
+	destPath := filepath.Join(a.dataDir, safeName)
 
 	if err := os.Rename(sourcePath, destPath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleRestoreRecycledItem: %v", err)
+		http.Error(w, "Failed to restore item", http.StatusInternalServerError)
 		return
 	}
 
 	git := gitops.NewGitManager(a.dataDir)
-	git.CommitAll("Restored " + req.Name + " from .recycle_bin")
+	git.CommitAll("Restored " + safeName + " from .recycle_bin")
 
 	w.WriteHeader(http.StatusOK)
 }
 
 func (a *API) HandleDeleteRecycledItemPermanent(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Name string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	targetPath := filepath.Join(a.dataDir, ".recycle_bin", req.Name)
+	// Sanitize: allow only a base filename, no path components
+	safeName := sanitizeFilename(req.Name)
+	if safeName == "" {
+		http.Error(w, "Invalid name", http.StatusBadRequest)
+		return
+	}
+
+	targetPath := filepath.Join(a.dataDir, ".recycle_bin", safeName)
 	if err := os.RemoveAll(targetPath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleDeleteRecycledItemPermanent: %v", err)
+		http.Error(w, "Failed to delete item", http.StatusInternalServerError)
 		return
 	}
 
@@ -599,11 +737,16 @@ func (a *API) HandleImportVault(w http.ResponseWriter, r *http.Request) {
 
 	for _, zf := range zr.File {
 		relPath := filepath.Clean(zf.Name)
-		if strings.HasPrefix(relPath, "..") || strings.HasPrefix(relPath, ".git") || strings.HasPrefix(relPath, ".recycle_bin") {
+		// Stronger path traversal prevention
+		if strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) ||
+			strings.HasPrefix(relPath, ".git") || strings.HasPrefix(relPath, ".recycle_bin") {
 			continue
 		}
 
-		targetPath := filepath.Join(a.dataDir, relPath)
+		targetPath, err := safePath(a.dataDir, relPath)
+		if err != nil {
+			continue
+		}
 
 		if zf.FileInfo().IsDir() {
 			os.MkdirAll(targetPath, os.ModePerm)
@@ -645,12 +788,13 @@ func generateToken(length int) string {
 }
 
 func (a *API) HandleCreateShareLink(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Filename  string `json:"filename"`
 		ExpiresIn string `json:"expires_in"` // e.g. "24h", "7d", "never"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -678,10 +822,12 @@ func (a *API) HandleCreateShareLink(w http.ResponseWriter, r *http.Request) {
 	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleCreateShareLink: %v", err)
+		http.Error(w, "Failed to create share link", http.StatusInternalServerError)
 		return
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(link)
 }
 
@@ -704,7 +850,8 @@ func parseDuration(s string) (time.Duration, error) {
 func (a *API) HandleListShareLinks(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query("SELECT id, token, filename, expires_at, created_at FROM shared_links ORDER BY created_at DESC")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleListShareLinks: %v", err)
+		http.Error(w, "Failed to list share links", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -721,6 +868,7 @@ func (a *API) HandleListShareLinks(w http.ResponseWriter, r *http.Request) {
 	if links == nil {
 		links = []models.SharedLink{}
 	}
+	setJSON(w)
 	json.NewEncoder(w).Encode(links)
 }
 
@@ -728,7 +876,8 @@ func (a *API) HandleRevokeShareLink(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	_, err := a.db.Exec("DELETE FROM shared_links WHERE token = $1", token)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleRevokeShareLink: %v", err)
+		http.Error(w, "Failed to revoke link", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -736,18 +885,20 @@ func (a *API) HandleRevokeShareLink(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) HandleUpdateShareLink(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		ExpiresIn string `json:"expires_in"` // "1h", "24h", "7d", "30d", "never"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if req.ExpiresIn == "never" {
 		_, err := a.db.Exec("UPDATE shared_links SET expires_at = NULL WHERE token = $1", token)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("HandleUpdateShareLink: %v", err)
+			http.Error(w, "Failed to update link", http.StatusInternalServerError)
 			return
 		}
 	} else {
@@ -759,7 +910,8 @@ func (a *API) HandleUpdateShareLink(w http.ResponseWriter, r *http.Request) {
 		newExpiry := time.Now().Add(duration)
 		_, err = a.db.Exec("UPDATE shared_links SET expires_at = $1 WHERE token = $2", newExpiry, token)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("HandleUpdateShareLink: %v", err)
+			http.Error(w, "Failed to update link", http.StatusInternalServerError)
 			return
 		}
 	}
@@ -780,7 +932,8 @@ func (a *API) HandleViewSharedNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleViewSharedNote: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -797,7 +950,11 @@ func (a *API) HandleViewSharedNote(w http.ResponseWriter, r *http.Request) {
 
 	if err == sql.ErrNoRows {
 		// Fallback to disk
-		path := filepath.Join(a.dataDir, link.Filename)
+		path, pathErr := safePath(a.dataDir, link.Filename)
+		if pathErr != nil {
+			http.Error(w, "Note not found", http.StatusNotFound)
+			return
+		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			http.Error(w, "Note not found", http.StatusNotFound)
@@ -807,10 +964,12 @@ func (a *API) HandleViewSharedNote(w http.ResponseWriter, r *http.Request) {
 		n.Content = string(content)
 		n.Title = link.Filename
 	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleViewSharedNote fetch: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(n)
 }
 
@@ -819,6 +978,8 @@ var sharedWikiLinkRegex = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	requestedFile := chi.URLParam(r, "filename")
+	// URL-decode in case chi doesn't fully decode %2F etc.
+	requestedFile, _ = url.PathUnescape(requestedFile)
 
 	// 1. Validate the share token
 	var link models.SharedLink
@@ -831,7 +992,8 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleViewSharedLinkedNote: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -846,8 +1008,12 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 	err = a.db.QueryRow("SELECT content FROM notes WHERE filename = $1", link.Filename).Scan(&parentContent)
 	if err != nil {
 		// Fallback to disk
-		path := filepath.Join(a.dataDir, link.Filename)
-		contentBytes, readErr := os.ReadFile(path)
+		parentPath, pathErr := safePath(a.dataDir, link.Filename)
+		if pathErr != nil {
+			http.Error(w, "Parent note not found", http.StatusNotFound)
+			return
+		}
+		contentBytes, readErr := os.ReadFile(parentPath)
 		if readErr != nil {
 			http.Error(w, "Parent note not found", http.StatusNotFound)
 			return
@@ -856,6 +1022,10 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 4. Check that the requested file is actually referenced via [[...]] in the parent
+	// Normalize the requested file for matching
+	reqWithoutMd := strings.TrimSuffix(requestedFile, ".md")
+	reqBase := filepath.Base(reqWithoutMd)
+
 	matches := sharedWikiLinkRegex.FindAllStringSubmatch(parentContent, -1)
 	allowed := false
 	for _, match := range matches {
@@ -863,10 +1033,19 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 		refName := match[1]
-		// Match with or without .md extension
-		if refName == requestedFile ||
-			refName+".md" == requestedFile ||
-			refName == strings.TrimSuffix(requestedFile, ".md") {
+		// Handle pipe aliases like [[Note Name|Display Text]]
+		if idx := strings.Index(refName, "|"); idx >= 0 {
+			refName = strings.TrimSpace(refName[:idx])
+		}
+		refWithoutMd := strings.TrimSuffix(refName, ".md")
+		refBase := filepath.Base(refWithoutMd)
+
+		// Match: exact, with/without .md, or by base name (for subfolder references)
+		if strings.EqualFold(refName, requestedFile) ||
+			strings.EqualFold(refWithoutMd, reqWithoutMd) ||
+			strings.EqualFold(refName, reqWithoutMd) ||
+			strings.EqualFold(refWithoutMd, requestedFile) ||
+			strings.EqualFold(refBase, reqBase) {
 			allowed = true
 			break
 		}
@@ -884,11 +1063,23 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 	}
 
 	var n models.Note
+	// Try exact match first, then base name match for notes in subdirectories
 	err = a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes WHERE filename = $1", targetFilename).
 		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified)
 
 	if err == sql.ErrNoRows {
-		path := filepath.Join(a.dataDir, targetFilename)
+		// Try matching by base filename
+		baseName := filepath.Base(targetFilename)
+		err = a.db.QueryRow(`SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes WHERE filename = $1 OR filename LIKE '%/' || $1`, baseName).
+			Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified)
+	}
+
+	if err == sql.ErrNoRows {
+		path, pathErr := safePath(a.dataDir, targetFilename)
+		if pathErr != nil {
+			http.Error(w, "Linked note not found", http.StatusNotFound)
+			return
+		}
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
 			http.Error(w, "Linked note not found", http.StatusNotFound)
@@ -898,10 +1089,12 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 		n.Content = string(content)
 		n.Title = strings.TrimSuffix(filepath.Base(targetFilename), ".md")
 	} else if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleViewSharedLinkedNote fetch: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(n)
 }
 
@@ -934,13 +1127,15 @@ func (a *API) HandleGetOrphanImages(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(imagesDir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			setJSON(w)
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"orphaned": []string{},
 				"total":    0,
 			})
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleGetOrphanImages: %v", err)
+		http.Error(w, "Failed to get orphan images", http.StatusInternalServerError)
 		return
 	}
 
@@ -953,7 +1148,8 @@ func (a *API) HandleGetOrphanImages(w http.ResponseWriter, r *http.Request) {
 	// 2. Scan all note content for image references
 	rows, err := a.db.Query("SELECT content FROM notes")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleGetOrphanImages query: %v", err)
+		http.Error(w, "Failed to scan notes", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -984,6 +1180,7 @@ func (a *API) HandleGetOrphanImages(w http.ResponseWriter, r *http.Request) {
 		orphaned = []string{}
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"orphaned": orphaned,
 		"total":    len(diskImages),
@@ -991,11 +1188,12 @@ func (a *API) HandleGetOrphanImages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) HandleDeleteOrphanImages(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
 	var req struct {
 		Images []string `json:"images"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -1003,12 +1201,13 @@ func (a *API) HandleDeleteOrphanImages(w http.ResponseWriter, r *http.Request) {
 	var deleted []string
 	for _, img := range req.Images {
 		// Security: only allow filenames, no path traversal
-		if strings.Contains(img, "/") || strings.Contains(img, "..") {
+		safe := sanitizeFilename(img)
+		if safe == "" || safe != img {
 			continue
 		}
-		fullPath := filepath.Join(imagesDir, img)
+		fullPath := filepath.Join(imagesDir, safe)
 		if err := os.Remove(fullPath); err == nil {
-			deleted = append(deleted, img)
+			deleted = append(deleted, safe)
 		}
 	}
 
@@ -1017,6 +1216,7 @@ func (a *API) HandleDeleteOrphanImages(w http.ResponseWriter, r *http.Request) {
 		git.CommitAll("Cleanup orphan images")
 	}
 
+	setJSON(w)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"deleted": deleted,
 	})
@@ -1045,7 +1245,8 @@ func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 		)
 	`, filename, title)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("HandleGetBacklinks: %v", err)
+		http.Error(w, "Failed to get backlinks", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -1061,5 +1262,6 @@ func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 	if notes == nil {
 		notes = []models.Note{}
 	}
+	setJSON(w)
 	json.NewEncoder(w).Encode(notes)
 }

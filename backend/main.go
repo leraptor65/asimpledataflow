@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -29,9 +30,19 @@ func main() {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Basic CORS
+	// CORS — configurable via CORS_ORIGINS env var (comma-separated)
+	corsOrigins := os.Getenv("CORS_ORIGINS")
+	var allowedOrigins []string
+	if corsOrigins != "" {
+		allowedOrigins = strings.Split(corsOrigins, ",")
+		for i, o := range allowedOrigins {
+			allowedOrigins[i] = strings.TrimSpace(o)
+		}
+	} else {
+		allowedOrigins = []string{"*"}
+	}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:8080"},
+		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
@@ -71,6 +82,7 @@ func initDB() {
 	user := os.Getenv("DB_USER")
 	password := os.Getenv("DB_PASSWORD")
 	dbname := os.Getenv("DB_NAME")
+	sslmode := os.Getenv("DB_SSLMODE")
 
 	if host == "" {
 		host = "localhost"
@@ -79,13 +91,17 @@ func initDB() {
 		user = "appuser"
 	}
 	if password == "" {
-		password = "secretpassword"
+		log.Fatal("DB_PASSWORD environment variable is required")
 	}
 	if dbname == "" {
 		dbname = "notesdb"
 	}
+	if sslmode == "" {
+		sslmode = "disable"
+		log.Println("WARNING: DB_SSLMODE not set, defaulting to 'disable'. Set DB_SSLMODE=require for production.")
+	}
 
-	connStr := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable", host, user, password, dbname)
+	connStr := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=%s", host, user, password, dbname, sslmode)
 
 	var err error
 	db, err = sql.Open("postgres", connStr)
