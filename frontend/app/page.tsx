@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import SplitEditor from "@/components/SplitEditor";
@@ -57,14 +57,21 @@ export default function Home() {
     fetchTree();
   }, []);
 
+  // Track selectedNote in a ref so the pathname effect always has the latest value
+  const selectedNoteRef = useRef(selectedNote);
+  useEffect(() => { selectedNoteRef.current = selectedNote; }, [selectedNote]);
+
   // Sync URL → selected note: when pathname changes, load the note
   useEffect(() => {
     if (pathname.startsWith("/notes/")) {
       const notePath = decodeURIComponent(pathname.replace("/notes/", ""));
-      // Only load if it's different from the currently selected note
-      if (!selectedNote || selectedNote.filename !== notePath) {
-        loadNote(notePath);
+      // Skip loading if we already have this note selected (covers newly created unsaved notes)
+      const current = selectedNoteRef.current;
+      if (current && current.filename === notePath) {
+        setCurrentView("editor");
+        return;
       }
+      loadNote(notePath);
       setCurrentView("editor");
     }
   }, [pathname]);
@@ -83,7 +90,16 @@ export default function Home() {
 
   const handleSelectNote = async (noteOrFilename: any) => {
     const filename = typeof noteOrFilename === 'string' ? noteOrFilename : noteOrFilename.filename;
-    // Navigate via URL - the useEffect above will handle loading the note
+    // If we received a full note object (e.g. from "New Note Here"), set it directly
+    // and use pushState to avoid component remount
+    if (typeof noteOrFilename === 'object' && noteOrFilename.content !== undefined) {
+      setSelectedNote(noteOrFilename);
+      selectedNoteRef.current = noteOrFilename;
+      setCurrentView("editor");
+      window.history.pushState(null, '', `/notes/${encodeURIComponent(filename)}`);
+      return;
+    }
+    // For existing notes, navigate via URL - the useEffect will handle loading
     router.push(`/notes/${encodeURIComponent(filename)}`);
   };
 
@@ -118,8 +134,11 @@ export default function Home() {
       content: "# Untitled Note\n\nStart typing here...",
     };
     setSelectedNote(newNote);
+    selectedNoteRef.current = newNote;
     setCurrentView("editor");
-    router.push(`/notes/${encodeURIComponent(filename)}`);
+    // Use pushState instead of router.push to avoid remounting the component
+    // (navigating from / to /notes/xxx are different Next.js pages)
+    window.history.pushState(null, '', `/notes/${encodeURIComponent(filename)}`);
   };
 
   const handleSaveNote = async (originalFilename: string, newFilename: string, content: string) => {
@@ -182,6 +201,7 @@ export default function Home() {
         onOpenRecycleBin={() => requestNavigation('recycle_bin')}
         onCloseRecycleBin={() => setShowRecycleBin(false)}
         conflictedNote={conflictedNote}
+        selectedNotePath={selectedNote?.filename || null}
       />
 
       <CommandPalette

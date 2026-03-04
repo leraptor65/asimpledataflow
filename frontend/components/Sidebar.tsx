@@ -23,6 +23,7 @@ interface SidebarProps {
     onOpenRecycleBin: () => void;
     onCloseRecycleBin: () => void;
     conflictedNote?: string | null;
+    selectedNotePath?: string | null;
 }
 
 function TreeNode({
@@ -33,7 +34,9 @@ function TreeNode({
     expandSignal,
     collapseSignal,
     conflictedNote,
-    onInitMove
+    onInitMove,
+    defaultOpen = false,
+    selectedNotePath
 }: {
     item: TreeItem,
     level: number,
@@ -42,9 +45,11 @@ function TreeNode({
     expandSignal: number,
     collapseSignal: number,
     conflictedNote?: string | null,
-    onInitMove: (item: TreeItem) => void
+    onInitMove: (item: TreeItem) => void,
+    defaultOpen?: boolean,
+    selectedNotePath?: string | null
 }) {
-    const [isOpen, setIsOpen] = useState(false);
+    const [isOpen, setIsOpen] = useState(defaultOpen);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -55,6 +60,15 @@ function TreeNode({
     useEffect(() => {
         if (collapseSignal > 0) setIsOpen(false);
     }, [collapseSignal]);
+
+    // Auto-expand this folder if the selected note is inside it
+    useEffect(() => {
+        if (selectedNotePath && item.type === "folder") {
+            if (selectedNotePath === item.path || selectedNotePath.startsWith(item.path + '/')) {
+                setIsOpen(true);
+            }
+        }
+    }, [selectedNotePath, item.path, item.type]);
 
     const handleDelete = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -221,19 +235,26 @@ function TreeNode({
                 </div>
                 {isOpen && item.children && item.children.length > 0 && (
                     <div>
-                        {item.children.map((child) =>
-                            <TreeNode
-                                key={child.path}
-                                item={child}
-                                level={level + 1}
-                                onSelect={onSelect}
-                                onRefresh={onRefresh}
-                                expandSignal={expandSignal}
-                                collapseSignal={collapseSignal}
-                                conflictedNote={conflictedNote}
-                                onInitMove={onInitMove}
-                            />
-                        )}
+                        {item.children.map((child) => {
+                            const childIsAncestor = selectedNotePath
+                                ? selectedNotePath === child.path || selectedNotePath.startsWith(child.path + '/')
+                                : false;
+                            return (
+                                <TreeNode
+                                    key={child.path}
+                                    item={child}
+                                    level={level + 1}
+                                    onSelect={onSelect}
+                                    onRefresh={onRefresh}
+                                    expandSignal={expandSignal}
+                                    collapseSignal={collapseSignal}
+                                    conflictedNote={conflictedNote}
+                                    onInitMove={onInitMove}
+                                    defaultOpen={childIsAncestor}
+                                    selectedNotePath={selectedNotePath}
+                                />
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -346,7 +367,8 @@ export default function Sidebar({
     showRecycleBin,
     onOpenRecycleBin,
     onCloseRecycleBin,
-    conflictedNote
+    conflictedNote,
+    selectedNotePath
 }: SidebarProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [recycleItems, setRecycleItems] = useState<TreeItem[]>([]);
@@ -551,19 +573,27 @@ export default function Sidebar({
                     )
                 ) : (
                     <div className="py-2">
-                        {sortedTreeData.map((node) => (
-                            <TreeNode
-                                key={node.path}
-                                item={node}
-                                level={0}
-                                onSelect={onSelectNote}
-                                onRefresh={onRefreshTree}
-                                expandSignal={expandSignal}
-                                collapseSignal={collapseSignal}
-                                conflictedNote={conflictedNote}
-                                onInitMove={setItemToMove}
-                            />
-                        ))}
+                        {sortedTreeData.map((node) => {
+                            // Determine if this node is an ancestor of the selected note
+                            const isAncestor = selectedNotePath
+                                ? selectedNotePath === node.path || selectedNotePath.startsWith(node.path + '/')
+                                : false;
+                            return (
+                                <TreeNode
+                                    key={node.path}
+                                    item={node}
+                                    level={0}
+                                    onSelect={onSelectNote}
+                                    onRefresh={onRefreshTree}
+                                    expandSignal={expandSignal}
+                                    collapseSignal={collapseSignal}
+                                    conflictedNote={conflictedNote}
+                                    onInitMove={setItemToMove}
+                                    defaultOpen={isAncestor}
+                                    selectedNotePath={selectedNotePath}
+                                />
+                            );
+                        })}
                     </div>
                 )}
             </div>
