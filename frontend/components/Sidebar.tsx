@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp } from "lucide-react";
+import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface TreeItem {
@@ -24,6 +24,7 @@ interface SidebarProps {
     onCloseRecycleBin: () => void;
     conflictedNote?: string | null;
     selectedNotePath?: string | null;
+    onClose?: () => void;
 }
 
 function TreeNode({
@@ -261,8 +262,10 @@ function TreeNode({
         );
     }
 
+    const isActive = selectedNotePath === item.path;
+
     return (
-        <div {...dropProps} className={`group w-full flex items-center justify-between transition text-sm text-muted-foreground pr-4 ${isDragOver ? "bg-primary/20" : "hover:bg-muted/50"}`} style={{ paddingLeft: `${level * 16 + 16 + 18}px` }}>
+        <div {...dropProps} className={`group w-full flex items-center justify-between transition text-sm pr-4 ${isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50"} ${isDragOver ? "bg-primary/20" : ""}`} style={{ paddingLeft: `${level * 16 + 16 + 18}px` }}>
             <button
                 draggable
                 onDragStart={handleDragStart}
@@ -368,7 +371,8 @@ export default function Sidebar({
     onOpenRecycleBin,
     onCloseRecycleBin,
     conflictedNote,
-    selectedNotePath
+    selectedNotePath,
+    onClose
 }: SidebarProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [recycleItems, setRecycleItems] = useState<TreeItem[]>([]);
@@ -490,7 +494,7 @@ export default function Sidebar({
     };
 
     return (
-        <div className="w-64 border-r border-border bg-muted/20 flex flex-col h-full overflow-hidden">
+        <div className="w-full h-full border-r border-border bg-background flex flex-col overflow-hidden">
             <div className="p-4 border-b border-border flex flex-col gap-3">
                 <div className="flex items-center justify-between">
                     <h1 className="font-bold text-lg">ASDF</h1>
@@ -509,6 +513,15 @@ export default function Sidebar({
                         >
                             <Plus size={20} />
                         </button>
+                        {onClose && (
+                            <button
+                                onClick={onClose}
+                                className="p-1 hover:bg-muted rounded text-foreground md:hidden"
+                                title="Close Sidebar"
+                            >
+                                <X size={20} />
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -565,7 +578,7 @@ export default function Sidebar({
                                         ) : (
                                             <FileText size={16} className="shrink-0 mt-0.5" />
                                         )}
-                                        <span className="break-words leading-tight">{note.title || (note.filename || "").replace(".md", "")}</span>
+                                        <span className="break-words leading-tight">{(note.filename || "").replace(/\.md$/, "")}</span>
                                     </button>
                                 </li>
                             ))}

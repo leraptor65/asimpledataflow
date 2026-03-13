@@ -127,7 +127,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 }
 
 func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes ORDER BY last_modified DESC")
+	rows, err := a.db.Query("SELECT DISTINCT ON (filename) id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes ORDER BY filename, last_modified DESC")
 	if err != nil {
 		log.Printf("HandleListNotes: %v", err)
 		http.Error(w, "Failed to list notes", http.StatusInternalServerError)
@@ -227,10 +227,10 @@ func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
 
 	// Postgres Full Text Search
 	rows, err := a.db.Query(`
-		SELECT id, filename, title, COALESCE(frontmatter, '{}'), last_modified 
+		SELECT DISTINCT ON (filename) id, filename, title, COALESCE(frontmatter, '{}'), last_modified 
 		FROM notes 
 		WHERE content_vector @@ plainto_tsquery('english', $1)
-		ORDER BY ts_rank(content_vector, plainto_tsquery('english', $1)) DESC
+		ORDER BY filename, ts_rank(content_vector, plainto_tsquery('english', $1)) DESC
 	`, query)
 
 	if err != nil {

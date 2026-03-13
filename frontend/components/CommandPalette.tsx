@@ -80,14 +80,14 @@ export default function CommandPalette({
                                 {notes.map((note) => (
                                     <Command.Item
                                         key={note.filename}
-                                        value={note.title || note.filename}
+                                        value={(note.filename || "").replace(/\.md$/, "")}
                                         onSelect={() => {
                                             onSelectNote(note);
                                             setOpen(false);
                                         }}
                                         className="flex items-center px-2 py-2 text-sm text-foreground rounded-md cursor-pointer hover:bg-muted aria-selected:bg-muted"
                                     >
-                                        {note.title || note.filename}
+                                        {(note.filename || "").replace(/\.md$/, "")}
                                     </Command.Item>
                                 ))}
                             </Command.Group>

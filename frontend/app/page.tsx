@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { Menu } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import SplitEditor from "@/components/SplitEditor";
 import CommandPalette from "@/components/CommandPalette";
@@ -19,6 +20,7 @@ export default function Home() {
   const [isEditorDirty, setIsEditorDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ type: string, payload?: any } | null>(null);
   const [showRecycleBin, setShowRecycleBin] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const conflictedNote = (() => {
     if (!isEditorDirty || !selectedNote) return null;
@@ -189,42 +191,67 @@ export default function Home() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-      <Sidebar
-        notes={notes}
-        treeData={treeData}
-        onSelectNote={(note) => requestNavigation('select', note)}
-        onCreateNote={() => requestNavigation('create')}
-        onSearch={handleSearch}
-        onOpenSettings={() => requestNavigation('settings')}
-        onRefreshTree={fetchTree}
-        showRecycleBin={showRecycleBin}
-        onOpenRecycleBin={() => requestNavigation('recycle_bin')}
-        onCloseRecycleBin={() => setShowRecycleBin(false)}
-        conflictedNote={conflictedNote}
-        selectedNotePath={selectedNote?.filename || null}
-      />
+      {/* Mobile header bar */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 border-b border-border bg-background">
+        <button onClick={() => setSidebarOpen(true)} className="p-1 hover:bg-muted rounded" title="Open Sidebar">
+          <Menu size={22} />
+        </button>
+        <h1 className="font-bold text-lg">ASDF</h1>
+        <div className="w-[30px]" /> {/* spacer for centering */}
+      </div>
+
+      {/* Sidebar: fixed panel on desktop, overlay on mobile */}
+      <div className={`fixed inset-0 z-50 md:relative md:z-auto transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}>
+        {/* Backdrop for mobile */}
+        <div
+          className={`absolute inset-0 bg-black/40 md:hidden ${sidebarOpen ? 'block' : 'hidden'}`}
+          onClick={() => setSidebarOpen(false)}
+        />
+        <div className="relative h-full w-full md:w-80
+        ">
+          <Sidebar
+            notes={notes}
+            treeData={treeData}
+            onSelectNote={(note) => { setSidebarOpen(false); requestNavigation('select', note); }}
+            onCreateNote={() => { setSidebarOpen(false); requestNavigation('create'); }}
+            onSearch={handleSearch}
+            onOpenSettings={() => { setSidebarOpen(false); requestNavigation('settings'); }}
+            onRefreshTree={fetchTree}
+            showRecycleBin={showRecycleBin}
+            onOpenRecycleBin={() => { setSidebarOpen(false); requestNavigation('recycle_bin'); }}
+            onCloseRecycleBin={() => setShowRecycleBin(false)}
+            conflictedNote={conflictedNote}
+            selectedNotePath={selectedNote?.filename || null}
+            onClose={() => setSidebarOpen(false)}
+          />
+        </div>
+      </div>
 
       <CommandPalette
         notes={notes}
-        onSelectNote={(note) => requestNavigation('select', note)}
-        onCreateNote={() => requestNavigation('create')}
+        onSelectNote={(note) => { setSidebarOpen(false); requestNavigation('select', note); }}
+        onCreateNote={() => { setSidebarOpen(false); requestNavigation('create'); }}
       />
 
-      {currentView === "settings" ? (
-        <Settings />
-      ) : selectedNote ? (
-        <SplitEditor
-          note={selectedNote}
-          onSave={handleSaveNote}
-          onDirtyChange={setIsEditorDirty}
-          onSelectNote={handleSelectNote}
-        />
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
-          <p className="text-xl font-semibold mb-2">Welcome to A Simple Data Flow</p>
-          <p>Create a new note or select an existing one from the sidebar.</p>
-        </div>
-      )}
+      {/* Main content area - add top padding on mobile for the header */}
+      <div className="flex-1 flex flex-col pt-[49px] md:pt-0 overflow-hidden">
+        {currentView === "settings" ? (
+          <Settings />
+        ) : selectedNote ? (
+          <SplitEditor
+            note={selectedNote}
+            onSave={handleSaveNote}
+            onDirtyChange={setIsEditorDirty}
+            onSelectNote={handleSelectNote}
+          />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground px-4 text-center">
+            <p className="text-xl font-semibold mb-2">Welcome to A Simple Data Flow</p>
+            <p>Create a new note or select an existing one from the sidebar.</p>
+          </div>
+        )}
+      </div>
 
       {pendingNavigation && (
         <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-[100]">

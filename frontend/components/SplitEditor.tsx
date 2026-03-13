@@ -86,6 +86,18 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
     const [showHistory, setShowHistory] = useState(false);
     const [history, setHistory] = useState<any[]>([]);
 
+    // On mobile, fallback from split to render
+    useEffect(() => {
+        const checkWidth = () => {
+            if (window.innerWidth < 768 && viewMode === "split") {
+                setViewMode("render");
+            }
+        };
+        checkWidth();
+        window.addEventListener("resize", checkWidth);
+        return () => window.removeEventListener("resize", checkWidth);
+    }, [viewMode]);
+
     // Diff & Revert State
     const [diffMode, setDiffMode] = useState(false);
     const [historicalContent, setHistoricalContent] = useState("");
@@ -371,16 +383,12 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
 
     return (
         <div className="relative flex-1 flex flex-col h-full overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-border bg-background">
-                <input
-                    type="text"
-                    value={filenameInput}
-                    onChange={(e) => setFilenameInput(e.target.value)}
-                    className="text-xl font-semibold bg-transparent border-none outline-none focus:ring-1 focus:ring-primary rounded px-2 w-1/2"
-                    placeholder="Enter filename..."
-                />
-                <div className="flex items-center gap-3">
-                    <div className="flex bg-muted rounded-md p-1 mr-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 md:p-4 border-b border-border bg-background">
+                <div className="text-lg md:text-xl font-semibold px-2 min-w-0 flex-1 md:flex-none md:w-1/2 truncate text-foreground">
+                    {filenameInput}
+                </div>
+                <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+                    <div className="flex bg-muted rounded-md p-1 mr-2 md:mr-4">
                         <button
                             onClick={() => setViewMode("editor")}
                             className={`p-1.5 rounded-sm transition ${viewMode === "editor" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
@@ -390,7 +398,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                         </button>
                         <button
                             onClick={() => setViewMode("split")}
-                            className={`p-1.5 rounded-sm transition ${viewMode === "split" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                            className={`p-1.5 rounded-sm transition hidden md:block ${viewMode === "split" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
                             title="Split View"
                         >
                             <Columns size={16} />
@@ -431,13 +439,13 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                         <div className="flex items-center gap-2">
                             <button
                                 onClick={diffMode ? cancelRevert : () => setSyncDiffMode(false)}
-                                className="bg-secondary text-secondary-foreground px-4 py-2 rounded shadow hover:bg-secondary/80 transition"
+                                className="bg-secondary text-secondary-foreground px-3 md:px-4 py-2 rounded shadow hover:bg-secondary/80 transition text-sm"
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={diffMode ? confirmRevert : () => executeSync(latestLocalContent)}
-                                className={diffMode ? "bg-destructive text-destructive-foreground px-4 py-2 rounded shadow hover:opacity-90 transition flex items-center gap-2" : "bg-primary text-primary-foreground px-4 py-2 rounded shadow hover:opacity-90 transition flex items-center gap-2"}
+                                className={diffMode ? "bg-destructive text-destructive-foreground px-3 md:px-4 py-2 rounded shadow hover:opacity-90 transition flex items-center gap-2 text-sm" : "bg-primary text-primary-foreground px-3 md:px-4 py-2 rounded shadow hover:opacity-90 transition flex items-center gap-2 text-sm"}
                             >
                                 {diffMode ? <><AlertTriangle size={16} /> Confirm Revert</> : "Confirm Sync"}
                             </button>
@@ -500,9 +508,9 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                             <button
                                 id="sync-button"
                                 onClick={handleSyncClick}
-                                className={`px-4 py-2 rounded shadow transition ${isDirty ? "bg-amber-600 hover:bg-amber-700 text-white" : "bg-primary text-primary-foreground hover:opacity-90"}`}
+                                className={`px-3 md:px-4 py-2 rounded shadow transition text-sm ${isDirty ? "bg-amber-600 hover:bg-amber-700 text-white" : "bg-primary text-primary-foreground hover:opacity-90"}`}
                             >
-                                {isDirty ? "Sync Changes" : "Sync"}
+                                {isDirty ? "Sync" : "Sync"}
                             </button>
                         </div>
                     )}
@@ -619,7 +627,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                                 onClick={() => onSelectNote?.(bl.filename)}
                                 className="text-xs bg-primary/10 text-primary px-2 py-1 rounded hover:bg-primary/20 transition"
                             >
-                                {bl.title || bl.filename.replace('.md', '')}
+                                {(bl.filename || "").replace(/\.md$/, "")}
                             </button>
                         ))}
                     </div>
