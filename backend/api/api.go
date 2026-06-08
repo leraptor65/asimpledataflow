@@ -26,6 +26,7 @@ import (
 	gitHttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/leraptor65/simple-data-flow/gitops"
 	"github.com/leraptor65/simple-data-flow/models"
+	"github.com/leraptor65/simple-data-flow/watcher"
 )
 
 const maxJSONBodySize = 1 << 20     // 1 MB
@@ -100,6 +101,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Put("/api/move", a.HandleMoveItem)
 	r.Delete("/api/delete", a.HandleDeleteItem)
 	r.Get("/api/tree", a.HandleGetTree)
+	r.Post("/api/sync", a.HandleSyncDatabase)
 	r.Get("/api/history", a.HandleGetHistory)
 	r.Get("/api/history/content", a.HandleGetHistoryContent)
 	r.Post("/api/revert", a.HandleRevertFile)
@@ -127,6 +129,10 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Get("/api/orphan-images", a.HandleGetOrphanImages)
 	r.Delete("/api/orphan-images", a.HandleDeleteOrphanImages)
 
+	// Image gallery management
+	r.Get("/api/images", a.HandleListImages)
+	r.Delete("/api/images/{name}", a.HandleDeleteImage)
+
 	// Backlinks
 	r.Get("/api/backlinks", a.HandleGetBacklinks)
 
@@ -134,6 +140,8 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Get("/api/git/status", a.HandleGetGitStatus)
 	r.Post("/api/git/toggle", a.HandleToggleGitSync)
 	r.Post("/api/git/check", a.HandleCheckGitConnection)
+	r.Post("/api/git/push", a.HandleGitPushAll)
+	r.Get("/api/version", a.HandleGetVersion)
 }
 
 func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
@@ -230,9 +238,22 @@ func (a *API) HandleSaveNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	git := gitops.NewGitManager(a.dataDir)
-	git.CommitFile(filename, "Update "+filename)
+	git.CommitAll("Update "+filename)
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func buildFuzzyPattern(query string) string {
+	var sb strings.Builder
+	sb.WriteRune('%')
+	for _, r := range query {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			sb.WriteRune(r)
+			sb.WriteRune('%')
+		}
+	}
+	return sb.String()
 }
 
 func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
@@ -242,13 +263,27 @@ func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Postgres Full Text Search
+	fuzzyPattern := buildFuzzyPattern(query)
+
 	rows, err := a.db.Query(`
-		SELECT DISTINCT ON (filename) id, filename, title, COALESCE(frontmatter, '{}'), last_modified 
-		FROM notes 
-		WHERE content_vector @@ plainto_tsquery('english', $1)
-		ORDER BY filename, ts_rank(content_vector, plainto_tsquery('english', $1)) DESC
-	`, query)
+		SELECT id, filename, title, frontmatter, last_modified
+		FROM (
+			SELECT DISTINCT ON (filename) id, filename, title, COALESCE(frontmatter, '{}') as frontmatter, last_modified,
+				(CASE 
+					WHEN filename ILIKE '%' || $1 || '%' THEN 10
+					WHEN filename ILIKE $2 THEN 5
+					WHEN content_vector @@ plainto_tsquery('english', $1) THEN 3
+					WHEN content ILIKE '%' || $1 || '%' THEN 1
+					ELSE 0
+				END) as rank
+			FROM notes 
+			WHERE filename ILIKE '%' || $1 || '%' 
+			   OR filename ILIKE $2 
+			   OR content_vector @@ plainto_tsquery('english', $1) 
+			   OR content ILIKE '%' || $1 || '%'
+		) sub
+		ORDER BY rank DESC, filename ASC
+	`, query, fuzzyPattern)
 
 	if err != nil {
 		log.Printf("HandleSearchNotes: %v", err)
@@ -383,6 +418,7 @@ func (a *API) HandleMoveItem(w http.ResponseWriter, r *http.Request) {
 
 	git := gitops.NewGitManager(a.dataDir)
 	git.CommitAll("Move " + req.Source + " to " + req.Destination)
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -421,6 +457,7 @@ func (a *API) HandleDeleteItem(w http.ResponseWriter, r *http.Request) {
 
 	git := gitops.NewGitManager(a.dataDir)
 	git.CommitAll("Moved " + req.Path + " to .recycle_bin")
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -557,6 +594,7 @@ func (a *API) HandleRevertFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to revert file", http.StatusInternalServerError)
 		return
 	}
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -646,6 +684,7 @@ func (a *API) HandleRestoreRecycledItem(w http.ResponseWriter, r *http.Request) 
 
 	git := gitops.NewGitManager(a.dataDir)
 	git.CommitAll("Restored " + safeName + " from .recycle_bin")
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -791,6 +830,7 @@ func (a *API) HandleImportVault(w http.ResponseWriter, r *http.Request) {
 
 	git := gitops.NewGitManager(a.dataDir)
 	git.CommitAll("Vault imported from ZIP")
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -1414,6 +1454,9 @@ func (a *API) HandleGetGitStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	gitMgr := gitops.NewGitManager(a.dataDir)
+	logs := gitMgr.GetSyncLogs()
+
 	status := map[string]interface{}{
 		"enabled":       repo != "",
 		"sync_disabled": disabled,
@@ -1424,6 +1467,7 @@ func (a *API) HandleGetGitStatus(w http.ResponseWriter, r *http.Request) {
 		"has_token":     hasToken,
 		"author_name":   userName,
 		"author_email":  userEmail,
+		"sync_logs":     logs,
 	}
 
 	setJSON(w)
@@ -1554,9 +1598,127 @@ func (a *API) HandleCheckGitConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
+
 	setJSON(w)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Successfully authenticated and connected to GitHub repository!",
 	})
 }
+
+func (a *API) HandleGitPushAll(w http.ResponseWriter, r *http.Request) {
+	gitMgr := gitops.NewGitManager(a.dataDir)
+	repo := gitMgr.InitRepo()
+	if repo == nil {
+		setJSON(w)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Failed to initialize local git repository.",
+		})
+		return
+	}
+
+	log.Println("GitHub Sync: manual push-all triggered from settings")
+	// CommitAll commits untracked and modified changes, pulling and pushing remote under the hood
+	gitMgr.CommitAll("Sync all notes to GitHub")
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
+
+	// Get latest logs to check for success/errors
+	logs := gitMgr.GetSyncLogs()
+	var lastErr string
+	if len(logs) > 0 && !logs[0].Success {
+		lastErr = logs[0].Error
+	}
+
+	setJSON(w)
+	if lastErr != "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Push completed with warnings: " + lastErr,
+		})
+	} else {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "Successfully committed and pushed all notes to GitHub!",
+		})
+	}
+}
+
+func getVersion() string {
+	paths := []string{"VERSION", "../VERSION", "backend/VERSION"}
+	for _, p := range paths {
+		if data, err := os.ReadFile(p); err == nil {
+			return strings.TrimSpace(string(data))
+		}
+	}
+	return "unknown"
+}
+
+func (a *API) HandleGetVersion(w http.ResponseWriter, r *http.Request) {
+	setJSON(w)
+	json.NewEncoder(w).Encode(map[string]string{
+		"version": getVersion(),
+	})
+}
+
+func (a *API) HandleListImages(w http.ResponseWriter, r *http.Request) {
+	imagesDir := filepath.Join(a.dataDir, ".images")
+	var images []string
+	entries, err := os.ReadDir(imagesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			setJSON(w)
+			json.NewEncoder(w).Encode([]string{})
+			return
+		}
+		log.Printf("HandleListImages: %v", err)
+		http.Error(w, "Failed to read images directory", http.StatusInternalServerError)
+		return
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			images = append(images, entry.Name())
+		}
+	}
+
+	if images == nil {
+		images = []string{}
+	}
+
+	setJSON(w)
+	json.NewEncoder(w).Encode(images)
+}
+
+func (a *API) HandleDeleteImage(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	name, _ = url.PathUnescape(name)
+	safe := sanitizeFilename(name)
+	if safe == "" {
+		http.Error(w, "Invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	fullPath := filepath.Join(a.dataDir, ".images", safe)
+	if err := os.Remove(fullPath); err != nil {
+		log.Printf("HandleDeleteImage: %v", err)
+		http.Error(w, "Failed to delete image", http.StatusInternalServerError)
+		return
+	}
+
+	git := gitops.NewGitManager(a.dataDir)
+	git.CommitAll("Delete image " + safe)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *API) HandleSyncDatabase(w http.ResponseWriter, r *http.Request) {
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
+	setJSON(w)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Database successfully synchronized with disk.",
+	})
+}
+

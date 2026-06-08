@@ -85,9 +85,15 @@ export default function CommandPalette({
                                             onSelectNote(note);
                                             setOpen(false);
                                         }}
-                                        className="flex items-center px-2 py-2 text-sm text-foreground rounded-md cursor-pointer hover:bg-muted aria-selected:bg-muted"
+                                        className="flex items-center justify-between px-2 py-2 text-sm text-foreground rounded-md cursor-pointer hover:bg-muted aria-selected:bg-muted gap-4"
+                                        title={note.filename.replace(/\.md$/, "")}
                                     >
-                                        {(note.filename || "").replace(/\.md$/, "")}
+                                        <span>{(note.filename || "").split('/').pop()?.replace(/\.md$/, "") || ""}</span>
+                                        {note.filename.includes('/') && (
+                                            <span className="text-[10px] text-muted-foreground font-normal opacity-50 select-none">
+                                                {note.filename.split('/').slice(0, -1).join('/')}
+                                            </span>
+                                        )}
                                     </Command.Item>
                                 ))}
                             </Command.Group>

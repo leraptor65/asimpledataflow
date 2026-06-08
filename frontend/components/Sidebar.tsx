@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu, Upload } from "lucide-react";
+import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu, Upload, Home } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface TreeItem {
@@ -507,7 +507,16 @@ export default function Sidebar({
         <div className="w-full h-full border-r border-border bg-background flex flex-col overflow-hidden">
             <div className="p-4 border-b border-border flex flex-col gap-3">
                 <div className="flex items-center justify-between">
-                    <h1 className="font-bold text-lg">ASDF</h1>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => onSelectNote(null)}
+                            className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors"
+                            title="Go to Home"
+                        >
+                            <Home size={16} />
+                        </button>
+                        <h1 className="font-bold text-lg">ASDF</h1>
+                    </div>
                     <div className="flex items-center gap-1">
                         <button
                             onClick={handleCreateFolder}
@@ -602,19 +611,26 @@ export default function Sidebar({
                                 <li key={note.filename}>
                                     <button
                                         onClick={() => onSelectNote(note.filename)}
-                                        className={`w-full text-left px-4 py-2 flex items-start gap-2 hover:bg-muted/50 transition text-sm ${note.filename
-                                            ? "bg-muted font-medium text-foreground"
-                                            : "text-muted-foreground"
-                                            }`}
+                                        className={`w-full text-left px-4 py-2 flex flex-col items-start gap-0.5 hover:bg-muted/50 transition text-sm ${selectedNotePath === note.filename ? "bg-primary/10 text-primary font-medium" : "text-foreground"}`}
+                                        title={note.filename.replace(/\.md$/, "")}
                                     >
-                                        {conflictedNote === note.filename ? (
-                                            <span title="Unsynced changes conflict with external modifications" className="shrink-0 flex items-center mt-0.5">
-                                                <AlertCircle size={16} className="text-amber-500" />
+                                        <div className="flex items-center gap-2 w-full">
+                                            {conflictedNote === note.filename ? (
+                                                <span title="Unsynced changes conflict with external modifications" className="shrink-0 flex items-center mt-0.5">
+                                                    <AlertCircle size={16} className="text-amber-500" />
+                                                </span>
+                                            ) : (
+                                                <FileText size={16} className="shrink-0 opacity-70 mt-0.5" />
+                                            )}
+                                            <span className="break-words leading-tight flex-1">
+                                                {(note.filename || "").split('/').pop()?.replace(/\.md$/, "") || ""}
                                             </span>
-                                        ) : (
-                                            <FileText size={16} className="shrink-0 mt-0.5" />
+                                        </div>
+                                        {note.filename.includes('/') && (
+                                            <span className="text-[10px] text-muted-foreground pl-6 font-normal truncate max-w-full">
+                                                in {note.filename.split('/').slice(0, -1).join('/')}
+                                            </span>
                                         )}
-                                        <span className="break-words leading-tight">{(note.filename || "").replace(/\.md$/, "")}</span>
                                     </button>
                                 </li>
                             ))}

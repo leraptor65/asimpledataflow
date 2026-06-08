@@ -183,6 +183,7 @@ func (g *GitManager) pullFromRemote(repo *git.Repository) {
 	w, err := repo.Worktree()
 	if err != nil {
 		log.Printf("GitHub Sync: failed to get worktree for pull: %v", err)
+		g.WriteSyncLog("Pull", err)
 		return
 	}
 
@@ -204,6 +205,7 @@ func (g *GitManager) pullFromRemote(repo *git.Repository) {
 			})
 			if err != nil {
 				log.Printf("GitHub Sync: failed to create remote on pull: %v", err)
+				g.WriteSyncLog("Pull", err)
 				return
 			}
 		}
@@ -225,13 +227,17 @@ func (g *GitManager) pullFromRemote(repo *git.Repository) {
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
 			log.Println("GitHub Sync: local repository is up to date.")
+			g.WriteSyncLog("Pull", nil)
 		} else if err == git.ErrNonFastForwardUpdate {
 			log.Println("GitHub Sync: warning: remote changes could not be fast-forwarded. Manual merge required.")
+			g.WriteSyncLog("Pull", err)
 		} else {
 			log.Printf("GitHub Sync: warning: pull failed: %v. Local repository remains operational.", err)
+			g.WriteSyncLog("Pull", err)
 		}
 	} else {
 		log.Println("GitHub Sync: successfully pulled remote changes!")
+		g.WriteSyncLog("Pull", nil)
 	}
 }
 
@@ -251,6 +257,7 @@ func (g *GitManager) pushToRemote(repo *git.Repository) {
 	remotes, err := repo.Remotes()
 	if err != nil {
 		log.Printf("GitHub Sync: failed to list remotes on push: %v", err)
+		g.WriteSyncLog("Push", err)
 		return
 	}
 
@@ -269,6 +276,7 @@ func (g *GitManager) pushToRemote(repo *git.Repository) {
 		})
 		if err != nil {
 			log.Printf("GitHub Sync: failed to create remote on push: %v", err)
+			g.WriteSyncLog("Push", err)
 			return
 		}
 	}
@@ -296,11 +304,14 @@ func (g *GitManager) pushToRemote(repo *git.Repository) {
 	if err != nil {
 		if err == git.NoErrAlreadyUpToDate {
 			log.Println("GitHub Sync: already up-to-date.")
+			g.WriteSyncLog("Push", nil)
 		} else {
 			log.Printf("GitHub Sync: warning: push failed: %v. Local repository remains operational.", err)
+			g.WriteSyncLog("Push", err)
 		}
 	} else {
 		log.Println("GitHub Sync: successfully pushed to GitHub!")
+		g.WriteSyncLog("Push", nil)
 	}
 }
 
@@ -315,6 +326,76 @@ func (g *GitManager) isSyncDisabled() bool {
 		}
 	}
 	return false
+}
+
+type SyncLogEntry struct {
+	Timestamp      string `json:"timestamp"`
+	Action         string `json:"action"`
+	Success        bool   `json:"success"`
+	Error          string `json:"error"`
+	Recommendation string `json:"recommendation"`
+}
+
+func (g *GitManager) WriteSyncLog(action string, syncErr error) {
+	logPath := filepath.Join(g.dataDir, ".git_sync_log.json")
+	var entries []SyncLogEntry
+
+	// Read existing logs if file exists
+	if data, err := os.ReadFile(logPath); err == nil {
+		json.Unmarshal(data, &entries)
+	}
+
+	// Determine recommendation
+	rec := ""
+	errStr := ""
+	if syncErr != nil {
+		errStr = syncErr.Error()
+		lowerErr := strings.ToLower(errStr)
+		if strings.Contains(lowerErr, "auth") || strings.Contains(lowerErr, "authentication") || strings.Contains(lowerErr, "401") || strings.Contains(lowerErr, "credentials") {
+			rec = "Authentication failed. Run 'gh auth login --insecure-storage' on the host machine to authenticate."
+		} else if strings.Contains(lowerErr, "username") || strings.Contains(lowerErr, "terminal") || strings.Contains(lowerErr, "prompt") {
+			rec = "Interactive prompt requested. Make sure you have logged in via 'gh auth login --insecure-storage' on the host."
+		} else if strings.Contains(lowerErr, "resolve") || strings.Contains(lowerErr, "dial tcp") || strings.Contains(lowerErr, "timeout") {
+			rec = "Network connection failed. Verify the server has internet access and your proxy/DNS settings are correct."
+		} else if strings.Contains(lowerErr, "not found") || strings.Contains(lowerErr, "404") {
+			rec = "Repository not found. Double check your GITHUB_REPO URL and ensure the repository exists on GitHub."
+		} else if strings.Contains(lowerErr, "non-fast-forward") || strings.Contains(lowerErr, "merge") {
+			rec = "Conflicts detected. Run a manual git pull/merge on the host to resolve conflicts."
+		} else {
+			rec = "Check GITHUB_REPO settings and run 'gh auth status' on the host for diagnostics."
+		}
+	}
+
+	newEntry := SyncLogEntry{
+		Timestamp:      time.Now().Format(time.RFC3339),
+		Action:         action,
+		Success:        syncErr == nil,
+		Error:          errStr,
+		Recommendation: rec,
+	}
+
+	// Prepend new entry and cap at 20 entries
+	entries = append([]SyncLogEntry{newEntry}, entries...)
+	if len(entries) > 20 {
+		entries = entries[:20]
+	}
+
+	if data, err := json.MarshalIndent(entries, "", "  "); err == nil {
+		os.WriteFile(logPath, data, 0644)
+	}
+}
+
+// GetSyncLogs retrieves the sync log entries from .git_sync_log.json
+func (g *GitManager) GetSyncLogs() []SyncLogEntry {
+	logPath := filepath.Join(g.dataDir, ".git_sync_log.json")
+	var entries []SyncLogEntry
+	if data, err := os.ReadFile(logPath); err == nil {
+		json.Unmarshal(data, &entries)
+	}
+	if entries == nil {
+		entries = []SyncLogEntry{}
+	}
+	return entries
 }
 
 

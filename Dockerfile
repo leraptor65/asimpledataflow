@@ -15,7 +15,7 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm install -g npm@latest && npm ci
+RUN npm install -g npm@latest && npm install
 
 COPY frontend/ ./
 # We need to build the standalone Next.js server
@@ -42,6 +42,7 @@ COPY --from=frontend-builder /app/frontend/.next/static ./.next/static
 # COPY --from=frontend-builder /app/frontend/public ./public
 
 # Setup the orchestrator script
+COPY VERSION /app/VERSION
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 

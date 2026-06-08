@@ -167,7 +167,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
 
     const handleDownloadMarkdown = () => {
         if (!note || !note.filename) return;
-        
+
         let baseName = note.filename.split('/').pop() || note.filename;
         try {
             baseName = decodeURIComponent(baseName);
@@ -577,7 +577,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                                             className="flex items-center gap-2 px-4 py-2.5 text-left hover:bg-muted transition-colors text-sm border-t border-border"
                                         >
                                             <Download size={16} className="text-muted-foreground" />
-                                            Download Markdown
+                                            Download
                                         </button>
                                     </div>
                                 )}

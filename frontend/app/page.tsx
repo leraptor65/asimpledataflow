@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, FileText, FolderPlus, BookOpen, Folder, ArchiveRestore, Upload, X } from "lucide-react";
+import { Menu, FileText, FolderPlus, BookOpen, Folder, ArchiveRestore, Upload, X, Home as HomeIcon } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import SplitEditor from "@/components/SplitEditor";
 import CommandPalette from "@/components/CommandPalette";
@@ -59,6 +59,16 @@ export default function Home() {
     } catch (e) {
       console.error("Failed to fetch notes", e);
     }
+  };
+
+  const handleRefreshWorkspace = async () => {
+    try {
+      await fetch("/api/sync", { method: "POST" });
+    } catch (e) {
+      console.error("Failed to sync database", e);
+    }
+    await fetchTree();
+    await fetchNotes();
   };
 
   useEffect(() => {
@@ -262,7 +272,16 @@ export default function Home() {
         <button onClick={() => setSidebarOpen(true)} className="p-1 hover:bg-muted rounded" title="Open Sidebar">
           <Menu size={22} />
         </button>
-        <h1 className="font-bold text-lg">ASDF</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => requestNavigation('select', null)}
+            className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors"
+            title="Go to Home"
+          >
+            <HomeIcon size={16} />
+          </button>
+          <h1 className="font-bold text-lg">ASDF</h1>
+        </div>
         <div className="w-[30px]" /> {/* spacer for centering */}
       </div>
 
@@ -283,7 +302,7 @@ export default function Home() {
             onCreateNote={() => { setSidebarOpen(false); requestNavigation('create'); }}
             onSearch={handleSearch}
             onOpenSettings={() => { setSidebarOpen(false); requestNavigation('settings'); }}
-            onRefreshTree={fetchTree}
+            onRefreshTree={handleRefreshWorkspace}
             showRecycleBin={showRecycleBin}
             onOpenRecycleBin={() => { setSidebarOpen(false); requestNavigation('recycle_bin'); }}
             onCloseRecycleBin={() => setShowRecycleBin(false)}

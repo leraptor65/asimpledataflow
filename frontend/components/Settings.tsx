@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings as SettingsIcon, Trash2, Monitor, Link2, Copy, ExternalLink } from "lucide-react";
+import { Settings as SettingsIcon, Trash2, Monitor, Link2, Copy, ExternalLink, Image, Upload } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
@@ -43,6 +43,15 @@ export default function Settings() {
     const [gitStatus, setGitStatus] = useState<any | null>(null);
     const [connectionResult, setConnectionResult] = useState<{ success: boolean; message: string } | null>(null);
     const [checkingConnection, setCheckingConnection] = useState(false);
+    const [refreshingStatus, setRefreshingStatus] = useState(false);
+    const [statusError, setStatusError] = useState<string | null>(null);
+    const [pushingAll, setPushingAll] = useState(false);
+    const [pushAllResult, setPushAllResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [version, setVersion] = useState<string | null>(null);
+    const [images, setImages] = useState<string[]>([]);
+    const [loadingImages, setLoadingImages] = useState(false);
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [copiedImage, setCopiedImage] = useState<string | null>(null);
 
     useEffect(() => {
         setMounted(true);
@@ -52,16 +61,103 @@ export default function Settings() {
         setBiLinks(savedBiLinks !== "false");
         fetchSharedLinks();
         fetchGitStatus();
+        fetchVersion();
+        fetchImages();
     }, []);
 
     const fetchGitStatus = async () => {
+        setRefreshingStatus(true);
+        setStatusError(null);
         try {
             const res = await fetch("/api/git/status");
             if (res.ok) {
                 const data = await res.json();
                 setGitStatus(data);
+            } else {
+                setStatusError(`Failed to fetch status: Server returned ${res.status} ${res.statusText}`);
             }
-        } catch (e) { console.error("Failed to fetch git status", e); }
+        } catch (e) {
+            console.error("Failed to fetch git status", e);
+            setStatusError("Network error: Failed to connect to the backend server.");
+        } finally {
+            setRefreshingStatus(false);
+        }
+    };
+
+    const fetchVersion = async () => {
+        try {
+            const res = await fetch("/api/version");
+            if (res.ok) {
+                const data = await res.json();
+                setVersion(data.version);
+            }
+        } catch (e) {
+            console.error("Failed to fetch version", e);
+        }
+    };
+
+    const fetchImages = async () => {
+        setLoadingImages(true);
+        try {
+            const res = await fetch("/api/images");
+            if (res.ok) {
+                const data = await res.json();
+                setImages(data || []);
+            }
+        } catch (e) {
+            console.error("Failed to fetch images", e);
+        } finally {
+            setLoadingImages(false);
+        }
+    };
+
+    const handleUploadGalleryImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        const formData = new FormData();
+        formData.append("image", file);
+        setUploadingImage(true);
+        try {
+            const res = await fetch("/api/upload", {
+                method: "POST",
+                body: formData,
+            });
+            if (res.ok) {
+                fetchImages();
+            } else {
+                alert("Failed to upload image: " + await res.text());
+            }
+        } catch (e) {
+            console.error("Failed to upload image", e);
+            alert("Failed to upload image due to network error.");
+        } finally {
+            setUploadingImage(false);
+            e.target.value = ""; // Reset file input
+        }
+    };
+
+    const handleDeleteGalleryImage = async (name: string) => {
+        if (!confirm(`Are you sure you want to delete '${name}'?`)) return;
+        try {
+            const res = await fetch(`/api/images/${encodeURIComponent(name)}`, {
+                method: "DELETE",
+            });
+            if (res.ok) {
+                fetchImages();
+            } else {
+                alert("Failed to delete image: " + await res.text());
+            }
+        } catch (e) {
+            console.error("Failed to delete image", e);
+            alert("Failed to delete image due to network error.");
+        }
+    };
+
+    const copyMarkdownTag = (name: string) => {
+        const tag = `![${name.replace(/\.[^/.]+$/, "")}](/images/${name})`;
+        navigator.clipboard.writeText(tag);
+        setCopiedImage(name);
+        setTimeout(() => setCopiedImage(null), 2000);
     };
 
     const handleToggleSync = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -93,6 +189,26 @@ export default function Settings() {
             setConnectionResult({ success: false, message: "Network error occurred." });
         } finally {
             setCheckingConnection(false);
+            await fetchGitStatus();
+        }
+    };
+
+    const handlePushAll = async () => {
+        setPushingAll(true);
+        setPushAllResult(null);
+        try {
+            const res = await fetch("/api/git/push", { method: "POST" });
+            if (res.ok) {
+                const data = await res.json();
+                setPushAllResult(data);
+            } else {
+                setPushAllResult({ success: false, message: "Server error occurred during push." });
+            }
+        } catch (e) {
+            setPushAllResult({ success: false, message: "Network error occurred." });
+        } finally {
+            setPushingAll(false);
+            await fetchGitStatus();
         }
     };
 
@@ -298,10 +414,33 @@ export default function Settings() {
                     </section>
 
                     <section className="p-6 border border-border rounded-lg bg-card">
-                        <h2 className="text-xl font-semibold text-card-foreground mb-4 flex items-center gap-2">
-                            <Github size={20} />
-                            GitHub Sync Integration
-                        </h2>
+                        {(() => {
+                            const getSyncStatus = () => {
+                                if (!gitStatus) return { text: "Loading", color: "bg-muted/10 border border-muted/20", textClass: "text-muted-foreground", dot: "bg-muted-foreground" };
+                                if (!gitStatus.enabled) return { text: "Not Configured", color: "bg-destructive/10 border border-destructive/20", textClass: "text-destructive", dot: "bg-destructive" };
+                                if (gitStatus.sync_disabled) return { text: "Sync Suspended", color: "bg-amber-500/10 border border-amber-500/20", textClass: "text-amber-500", dot: "bg-amber-500" };
+                                if (gitStatus.gh_logged_in && gitStatus.has_token) {
+                                    return { text: "Connected & Active", color: "bg-green-500/10 border border-green-500/20", textClass: "text-green-500", dot: "bg-green-500" };
+                                }
+                                return { text: "Auth Action Required", color: "bg-amber-500/10 border border-amber-500/20", textClass: "text-amber-500", dot: "bg-amber-500" };
+                            };
+                            const syncStatus = getSyncStatus();
+
+                            return (
+                                <div className="flex items-center justify-between mb-4 pb-1">
+                                    <h2 className="text-xl font-semibold text-card-foreground flex items-center gap-2">
+                                        <Github size={20} />
+                                        GitHub Sync Integration
+                                    </h2>
+                                    {gitStatus && (
+                                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1.5 ${syncStatus.color} ${syncStatus.textClass}`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${syncStatus.dot}`} />
+                                            {syncStatus.text}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })()}
                         {gitStatus ? (
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between pb-3 border-b border-border/50">
@@ -372,28 +511,91 @@ export default function Settings() {
 
                                 {/* Action Buttons */}
                                 <div className="pt-2 flex flex-wrap gap-2.5">
-                                    <button
-                                        onClick={() => { fetchGitStatus(); setConnectionResult(null); }}
-                                        className="px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition text-sm font-semibold"
-                                    >
-                                        Refresh Status
-                                    </button>
                                     {gitStatus.enabled && (
-                                        <button
-                                            onClick={handleCheckConnection}
-                                            disabled={checkingConnection}
-                                            className="px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition disabled:opacity-50 text-sm font-semibold"
-                                        >
-                                            {checkingConnection ? "Checking..." : "Check Connection"}
-                                        </button>
+                                        <>
+                                            <button
+                                                onClick={handleCheckConnection}
+                                                disabled={checkingConnection || refreshingStatus}
+                                                className="px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition disabled:opacity-50 text-sm font-semibold flex items-center gap-2"
+                                            >
+                                                {checkingConnection || refreshingStatus ? (
+                                                    <>
+                                                        <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                                        Checking...
+                                                    </>
+                                                ) : "Check Connection"}
+                                            </button>
+                                            <button
+                                                onClick={handlePushAll}
+                                                disabled={pushingAll || refreshingStatus}
+                                                className="px-4 py-2 bg-primary text-primary-foreground hover:opacity-95 rounded-md transition disabled:opacity-50 text-sm font-semibold flex items-center gap-2"
+                                            >
+                                                {pushingAll ? (
+                                                    <>
+                                                        <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                                        Pushing...
+                                                    </>
+                                                ) : "Push to GitHub"}
+                                            </button>
+                                        </>
                                     )}
                                 </div>
+
+                                {statusError && (
+                                    <div className="p-3 rounded text-xs leading-5 border border-destructive/30 bg-destructive/5 text-destructive">
+                                        <p className="font-bold">Error Fetching Status:</p>
+                                        <p className="mt-0.5">{statusError}</p>
+                                    </div>
+                                )}
 
                                 {connectionResult && (
                                     <div className={`p-3 rounded text-xs leading-5 border ${connectionResult.success ? "border-green-500/30 bg-green-500/5 text-green-500" : "border-destructive/30 bg-destructive/5 text-destructive"}`}>
                                         <p className="font-bold">{connectionResult.success ? "Connection Active:" : "Connection Failed:"}</p>
                                         <p className="mt-0.5 whitespace-pre-wrap">{connectionResult.message}</p>
                                     </div>
+                                )}
+
+                                {pushAllResult && (
+                                    <div className={`p-3 rounded text-xs leading-5 border ${pushAllResult.success ? "border-green-500/30 bg-green-500/5 text-green-500" : "border-destructive/30 bg-destructive/5 text-destructive"}`}>
+                                        <p className="font-bold">{pushAllResult.success ? "Push Active:" : "Push Failed:"}</p>
+                                        <p className="mt-0.5 whitespace-pre-wrap">{pushAllResult.message}</p>
+                                    </div>
+                                )}
+
+                                {/* Sync Activity Logs */}
+                                {gitStatus.sync_logs && gitStatus.sync_logs.length > 0 && (
+                                    <details className="group border border-border/60 rounded-md bg-muted/10 p-3 mt-4">
+                                        <summary className="cursor-pointer text-sm font-semibold text-foreground hover:text-primary transition select-none flex items-center justify-between">
+                                            <span>Sync Activity Logs ({gitStatus.sync_logs.length})</span>
+                                            <span className="text-xs text-muted-foreground font-normal">Click to view log history</span>
+                                        </summary>
+                                        <div className="mt-3 space-y-3 max-h-60 overflow-y-auto pr-1">
+                                            {gitStatus.sync_logs.map((log: any, idx: number) => (
+                                                <div key={idx} className={`p-2.5 rounded border text-xs leading-5 ${log.success ? "border-green-500/20 bg-green-500/5" : "border-destructive/20 bg-destructive/5"}`}>
+                                                    <div className="flex items-center justify-between font-semibold mb-1">
+                                                        <span className="text-foreground uppercase font-bold tracking-wider text-[10px]">{log.action}</span>
+                                                        <span className={log.success ? "text-green-500" : "text-destructive"}>
+                                                            {log.success ? "Success" : "Failed"}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-[10px] text-muted-foreground mb-1">
+                                                        {new Date(log.timestamp).toLocaleString()}
+                                                    </div>
+                                                    {log.error && (
+                                                        <div className="font-mono text-muted-foreground bg-muted/40 p-1.5 rounded border border-border/50 break-words mb-1">
+                                                            {log.error}
+                                                        </div>
+                                                    )}
+                                                    {log.recommendation && (
+                                                        <div className="mt-1.5 p-2 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded font-medium flex gap-1.5">
+                                                            <span className="font-bold">⚠️ Fix Recommendation:</span>
+                                                            <span>{log.recommendation}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </details>
                                 )}
 
                                 {/* Setup Instructions */}
@@ -484,6 +686,73 @@ export default function Settings() {
                     </section>
 
                     <section className="p-6 border border-border rounded-lg bg-card">
+                        <div className="flex items-center justify-between mb-4 pb-1">
+                            <h2 className="text-xl font-semibold text-card-foreground flex items-center gap-2">
+                                <Image size={20} className="text-primary" />
+                                Image Gallery
+                            </h2>
+                            <div>
+                                <label className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-colors text-xs font-semibold cursor-pointer shadow-sm">
+                                    <Upload size={14} />
+                                    {uploadingImage ? "Uploading..." : "Upload Image"}
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        disabled={uploadingImage}
+                                        onChange={handleUploadGalleryImage}
+                                        className="hidden"
+                                    />
+                                </label>
+                            </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            Manage uploaded images in the <code className="bg-muted px-1 py-0.5 rounded font-mono text-xs">.images/</code> folder. Copy their markdown tag to use directly in notes.
+                        </p>
+
+                        {loadingImages ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">Loading images...</p>
+                        ) : images.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">No images uploaded yet.</p>
+                        ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 max-h-96 overflow-y-auto pr-1">
+                                {images.map((img) => (
+                                    <div key={img} className="group relative border border-border rounded-md bg-muted/20 overflow-hidden flex flex-col hover:border-primary/50 transition">
+                                        <div className="aspect-video relative bg-background border-b border-border flex items-center justify-center overflow-hidden">
+                                            <img
+                                                src={`/images/${encodeURIComponent(img)}`}
+                                                alt={img}
+                                                className="object-contain w-full h-full p-1 transition-transform group-hover:scale-105"
+                                            />
+                                        </div>
+                                        <div className="p-2 flex flex-col gap-1">
+                                            <span className="text-xs text-foreground truncate font-mono" title={img}>
+                                                {img}
+                                            </span>
+                                            <div className="flex gap-1.5 mt-1 justify-between">
+                                                <button
+                                                    onClick={() => copyMarkdownTag(img)}
+                                                    className="flex-1 py-1 px-1.5 text-[10px] font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded transition flex items-center justify-center gap-1"
+                                                    title="Copy Markdown Reference"
+                                                >
+                                                    <Copy size={10} />
+                                                    {copiedImage === img ? "Copied!" : "Copy Tag"}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteGalleryImage(img)}
+                                                    className="py-1 px-1.5 text-[10px] font-semibold bg-destructive/10 text-destructive hover:bg-destructive/20 rounded transition flex items-center justify-center"
+                                                    title="Delete Image"
+                                                >
+                                                    <Trash2 size={10} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </section>
+
+                    <section className="p-6 border border-border rounded-lg bg-card">
                         <h2 className="text-xl font-semibold text-card-foreground mb-4">Editor Preferences</h2>
                         <p className="text-sm text-muted-foreground mb-4">Configure default behaviors for the Monaco Editor.</p>
                         <div className="flex items-center justify-between py-3 border-b border-border/50">
@@ -514,6 +783,15 @@ export default function Settings() {
                                     localStorage.setItem("asdf_bidirectional_links", String(e.target.checked));
                                 }}
                             />
+                        </div>
+                    </section>
+
+                    <section className="p-6 border border-border rounded-lg bg-card mt-6">
+                        <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground text-xs font-medium">App Version</span>
+                            <span className="text-foreground text-xs font-mono font-bold bg-muted px-2.5 py-1 rounded border border-border">
+                                {version || "Loading..."}
+                            </span>
                         </div>
                     </section>
                 </div>

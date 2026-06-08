@@ -56,10 +56,8 @@ func (w *Watcher) Start() {
 						w.ProcessFile(event.Name)
 					}
 				} else if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
-					if strings.HasSuffix(event.Name, ".md") {
-						log.Println("Removed file:", event.Name)
-						w.RemoveFile(event.Name)
-					}
+					log.Println("Removed/Renamed path:", event.Name)
+					w.RemoveFile(event.Name)
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
@@ -70,7 +68,10 @@ func (w *Watcher) Start() {
 		}
 	}()
 
-	// Initial scan and watch all directories
+	// Perform initial scan and prune any deleted notes from database
+	SyncDatabaseWithDisk(w.db, w.dataDir)
+
+	// Watch all active directories
 	filepath.Walk(w.dataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -86,8 +87,6 @@ func (w *Watcher) Start() {
 			if err != nil {
 				log.Printf("Error adding watcher directory %s: %v", path, err)
 			}
-		} else if strings.HasSuffix(path, ".md") {
-			w.ProcessFile(path)
 		}
 		return nil
 	})
@@ -191,8 +190,78 @@ func (w *Watcher) RemoveFile(path string) {
 		relPath = filepath.Base(path)
 	}
 	filename := relPath
-	_, err = w.db.Exec("DELETE FROM notes WHERE filename = $1", filename)
-	if err != nil {
-		log.Printf("Error deleting note %s: %v", path, err)
+	
+	// If filename ends with .md, delete it specifically.
+	// Otherwise (e.g. folder moved/deleted), delete all entries starting with the folder name
+	if strings.HasSuffix(filename, ".md") {
+		_, err = w.db.Exec("DELETE FROM notes WHERE filename = $1", filename)
+	} else {
+		_, err = w.db.Exec("DELETE FROM notes WHERE filename = $1 OR filename LIKE $2", filename, filename+"/%")
 	}
+	if err != nil {
+		log.Printf("Error deleting note/folder %s: %v", path, err)
+	}
+}
+
+func SyncDatabaseWithDisk(db *sql.DB, dataDir string) {
+	log.Println("Database Sync: scanning disk to prune deleted notes and index active ones...")
+	
+	// 1. Walk the filesystem to collect all current markdown files
+	diskFiles := make(map[string]bool)
+	err := filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		// Skip hidden files/directories
+		if info.IsDir() && strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
+			return filepath.SkipDir
+		}
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
+			relPath, err := filepath.Rel(dataDir, path)
+			if err == nil {
+				diskFiles[relPath] = true
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Printf("Database Sync: error walking directory: %v", err)
+		return
+	}
+
+	// 2. Fetch all tracked notes from the database
+	rows, err := db.Query("SELECT filename FROM notes")
+	if err != nil {
+		log.Printf("Database Sync: query error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var toDelete []string
+	for rows.Next() {
+		var filename string
+		if err := rows.Scan(&filename); err == nil {
+			if !diskFiles[filename] {
+				toDelete = append(toDelete, filename)
+			}
+		}
+	}
+
+	// 3. Delete stale rows
+	for _, filename := range toDelete {
+		log.Printf("Database Sync: pruning stale record: %s", filename)
+		_, err = db.Exec("DELETE FROM notes WHERE filename = $1", filename)
+		if err != nil {
+			log.Printf("Database Sync: delete error for %s: %v", filename, err)
+		}
+	}
+
+	// 4. Index active files to ensure they are synchronized
+	w := NewWatcher(db, dataDir)
+	for relPath := range diskFiles {
+		fullPath := filepath.Join(dataDir, relPath)
+		w.ProcessFile(fullPath)
+	}
+	
+	log.Printf("Database Sync: complete! Pruned %d stale rows, validated %d active files.", len(toDelete), len(diskFiles))
 }

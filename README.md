@@ -16,6 +16,8 @@ A high-performance, locally-first Markdown note-taking app built with a Go backe
    - [Public Note Sharing & Expiry](#5-public-note-sharing--expiry)
    - [Orphan Image Scanning & Cleanup](#6-orphan-image-scanning--cleanup)
    - [Vault Export & Import](#7-vault-export--import)
+   - [Image Gallery & Asset Management](#8-image-gallery--asset-management)
+   - [Database Synchronization & Search Reconciliation](#9-database-synchronization--search-reconciliation)
 5. [GitHub Sync Integration](#-github-sync-integration-optional)
 6. [Bypassing Authentication Proxies for Shares](#-bypassing-authentication-proxies-for-shares)
 7. [Development Setup](#-development-setup)
@@ -161,6 +163,16 @@ volumes:
 ### 7. Vault Export & Import
 - **Export Vault**: Go to **Settings → Backup Workspace** and click **Export**. This compiles your entire Markdown vault, including folders and images, into a download file named `vault-export.zip`.
 - **Import Vault**: Click **Import** and upload a ZIP archive of Markdown notes. The server parses the file, extracts it securely, avoids directory traversals, and commits the imported files to Git.
+
+### 8. Image Gallery & Asset Management
+- **Gallery Grid**: Under the **Storage & Maintenance** section in the settings panel, there is an **Image Gallery** showcasing all images stored in the `.images/` directory.
+- **Copy Markdown Reference**: Hover over any image card in the gallery and click the **Copy Markdown** icon to copy its exact Markdown embedding syntax (e.g. `![alt](/images/filename.png)`) directly to your clipboard.
+- **Direct Upload & Delete**: Upload new images to use in notes via drag-and-drop or file selector, or permanently delete images. Deleting an image also runs a Git commit to sync your changes.
+
+### 9. Database Synchronization & Search Reconciliation
+- **Fuzzy Ranked Search**: Searching in the sidebar or Command Palette (`Ctrl+K`) ranks note matches with highest weight on the note filename, followed by body content. Results display only the base note title, with the directory path shown as faded subtext.
+- **Stale Record Pruning**: When folders or notes are moved or deleted, the Postgres database is updated. If notes are renamed, deleted, or moved externally (e.g. via Git pull or manual disk operations), you can manually reconcile the database by clicking the **Refresh Workspace** icon at the bottom of the sidebar.
+- **Sync Actions**: Database synchronization is also triggered automatically on startup, after saving notes, importing vaults, pulling from GitHub, or running a Git connection check.
 
 ---
 
