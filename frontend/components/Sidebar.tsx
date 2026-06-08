@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu } from "lucide-react";
+import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu, Upload } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface TreeItem {
@@ -25,6 +25,8 @@ interface SidebarProps {
     conflictedNote?: string | null;
     selectedNotePath?: string | null;
     onClose?: () => void;
+    onUploadFile?: (name: string, content: string) => void;
+    onRenameNote?: (oldPath: string, newPath: string) => void;
 }
 
 function TreeNode({
@@ -37,7 +39,8 @@ function TreeNode({
     conflictedNote,
     onInitMove,
     defaultOpen = false,
-    selectedNotePath
+    selectedNotePath,
+    onRenameNote
 }: {
     item: TreeItem,
     level: number,
@@ -48,7 +51,8 @@ function TreeNode({
     conflictedNote?: string | null,
     onInitMove: (item: TreeItem) => void,
     defaultOpen?: boolean,
-    selectedNotePath?: string | null
+    selectedNotePath?: string | null,
+    onRenameNote?: (oldPath: string, newPath: string) => void
 }) {
     const [isOpen, setIsOpen] = useState(defaultOpen);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -106,6 +110,9 @@ function TreeNode({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ source: srcPath, destination: destPath })
             });
+            if (onRenameNote) {
+                onRenameNote(srcPath, destPath);
+            }
             setTimeout(() => onRefresh(), 500);
         } catch (err) { console.error(err) }
     };
@@ -253,6 +260,7 @@ function TreeNode({
                                     onInitMove={onInitMove}
                                     defaultOpen={childIsAncestor}
                                     selectedNotePath={selectedNotePath}
+                                    onRenameNote={onRenameNote}
                                 />
                             );
                         })}
@@ -372,7 +380,9 @@ export default function Sidebar({
     onCloseRecycleBin,
     conflictedNote,
     selectedNotePath,
-    onClose
+    onClose,
+    onUploadFile,
+    onRenameNote
 }: SidebarProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [recycleItems, setRecycleItems] = useState<TreeItem[]>([]);
@@ -513,6 +523,32 @@ export default function Sidebar({
                         >
                             <Plus size={20} />
                         </button>
+                        <button
+                            onClick={() => document.getElementById("sidebar-file-upload")?.click()}
+                            className="p-1 hover:bg-muted rounded text-foreground"
+                            title="Upload Markdown"
+                        >
+                            <Upload size={18} />
+                        </button>
+                        <input
+                            id="sidebar-file-upload"
+                            type="file"
+                            accept=".md"
+                            className="hidden"
+                            onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                const reader = new FileReader();
+                                reader.onload = (event) => {
+                                    const text = event.target?.result;
+                                    if (typeof text === 'string') {
+                                        onUploadFile?.(file.name, text);
+                                    }
+                                };
+                                reader.readAsText(file);
+                                e.target.value = ""; // Reset file input
+                            }}
+                        />
                         {onClose && (
                             <button
                                 onClick={onClose}
@@ -542,9 +578,9 @@ export default function Sidebar({
                         onChange={(e) => setSortMode(e.target.value as any)}
                         className="bg-transparent border-none focus:ring-0 cursor-pointer hover:text-foreground py-1 px-0 appearance-none outline-none leading-none"
                     >
-                        <option value="alpha-asc">A-Z</option>
-                        <option value="alpha-desc">Z-A</option>
-                        <option value="modified-desc">Last Modified</option>
+                        <option value="alpha-asc" className="bg-white text-black">A-Z</option>
+                        <option value="alpha-desc" className="bg-white text-black">Z-A</option>
+                        <option value="modified-desc" className="bg-white text-black">Last Modified</option>
                     </select>
 
                     <div className="flex gap-1">
@@ -604,6 +640,7 @@ export default function Sidebar({
                                     onInitMove={setItemToMove}
                                     defaultOpen={isAncestor}
                                     selectedNotePath={selectedNotePath}
+                                    onRenameNote={onRenameNote}
                                 />
                             );
                         })}

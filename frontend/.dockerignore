@@ -1,0 +1,15 @@
+# Exclude node modules and build outputs
+node_modules/
+.next/
+out/
+build/
+
+# Exclude environment files
+.env
+.env.*
+*.local
+
+# Exclude git metadata
+.git
+.gitignore
+.dockerignore

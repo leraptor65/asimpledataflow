@@ -1,5 +1,5 @@
 # Stage 1: Build the Go Backend
-FROM golang:1.24-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 WORKDIR /app/backend
 # Install git and gcc for building go-git bindings if necessary
 RUN apk add --no-cache git build-base
@@ -11,11 +11,11 @@ COPY backend/ ./
 RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o simple-data-flow ./main.go
 
 # Stage 2: Build the Next.js Frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm install -g npm@latest && npm ci
 
 COPY frontend/ ./
 # We need to build the standalone Next.js server
@@ -26,8 +26,8 @@ RUN npm run build
 FROM alpine:3.19 AS runner
 WORKDIR /app
 
-# Install Node.js, git (for the backend), and libc for Go/CGO
-RUN apk add --no-cache nodejs git libc6-compat
+# Install Node.js, git (for the backend), gh CLI (for auth), and libc for Go/CGO
+RUN apk add --no-cache nodejs git libc6-compat github-cli
 
 # Create data directory for notes
 RUN mkdir -p /app/data

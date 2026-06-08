@@ -1,0 +1,17 @@
+# Exclude git repository metadata
+.git
+.gitignore
+.dockerignore
+
+# Exclude sensitive directories
+data/
+tmp/
+
+# Exclude compiled binaries
+simple-data-flow
+main
+
+# Exclude environment files
+.env
+.env.*
+*.local

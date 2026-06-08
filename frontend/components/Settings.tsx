@@ -4,6 +4,24 @@ import { Settings as SettingsIcon, Trash2, Monitor, Link2, Copy, ExternalLink } 
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
+const Github = ({ size = 20, className = "" }: { size?: number; className?: string }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+    >
+        <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+        <path d="M9 18c-4.51 2-5-2-7-2" />
+    </svg>
+);
+
 interface SharedLink {
     id: number;
     token: string;
@@ -22,6 +40,9 @@ export default function Settings() {
     const [showOrphanModal, setShowOrphanModal] = useState(false);
     const [totalImages, setTotalImages] = useState(0);
     const [biLinks, setBiLinks] = useState(true);
+    const [gitStatus, setGitStatus] = useState<any | null>(null);
+    const [connectionResult, setConnectionResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [checkingConnection, setCheckingConnection] = useState(false);
 
     useEffect(() => {
         setMounted(true);
@@ -30,7 +51,50 @@ export default function Settings() {
         const savedBiLinks = localStorage.getItem("asdf_bidirectional_links");
         setBiLinks(savedBiLinks !== "false");
         fetchSharedLinks();
+        fetchGitStatus();
     }, []);
+
+    const fetchGitStatus = async () => {
+        try {
+            const res = await fetch("/api/git/status");
+            if (res.ok) {
+                const data = await res.json();
+                setGitStatus(data);
+            }
+        } catch (e) { console.error("Failed to fetch git status", e); }
+    };
+
+    const handleToggleSync = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const disabled = !e.target.checked;
+        try {
+            const res = await fetch("/api/git/toggle", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ disabled }),
+            });
+            if (res.ok) {
+                setGitStatus((prev: any) => ({ ...prev, sync_disabled: disabled }));
+            }
+        } catch (e) { console.error("Failed to toggle sync", e); }
+    };
+
+    const handleCheckConnection = async () => {
+        setCheckingConnection(true);
+        setConnectionResult(null);
+        try {
+            const res = await fetch("/api/git/check", { method: "POST" });
+            if (res.ok) {
+                const data = await res.json();
+                setConnectionResult(data);
+            } else {
+                setConnectionResult({ success: false, message: "Server error occurred during connection check." });
+            }
+        } catch (e) {
+            setConnectionResult({ success: false, message: "Network error occurred." });
+        } finally {
+            setCheckingConnection(false);
+        }
+    };
 
     const fetchSharedLinks = async () => {
         try {
@@ -210,9 +274,12 @@ export default function Settings() {
                                                 >
                                                     <option value="" disabled>Expiry</option>
                                                     <option value="1h">1 Hour</option>
-                                                    <option value="24h">24 Hours</option>
-                                                    <option value="7d">7 Days</option>
-                                                    <option value="30d">30 Days</option>
+                                                    <option value="12h">12 Hours</option>
+                                                    <option value="24h">1 Day</option>
+                                                    <option value="3d">3 Days</option>
+                                                    <option value="7d">1 Week</option>
+                                                    <option value="14d">2 Weeks</option>
+                                                    <option value="30d">1 Month</option>
                                                     <option value="never">Never</option>
                                                 </select>
                                                 <button
@@ -227,6 +294,156 @@ export default function Settings() {
                                     </div>
                                 ))}
                             </div>
+                        )}
+                    </section>
+
+                    <section className="p-6 border border-border rounded-lg bg-card">
+                        <h2 className="text-xl font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                            <Github size={20} />
+                            GitHub Sync Integration
+                        </h2>
+                        {gitStatus ? (
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between pb-3 border-b border-border/50">
+                                    <div>
+                                        <h3 className="font-medium text-foreground">Sync Enabled</h3>
+                                        <p className="text-sm text-muted-foreground mt-1">
+                                            {gitStatus.enabled
+                                                ? "Toggle automatic backup and sync with GitHub."
+                                                : "No remote repository configured. Set GITHUB_REPO to enable."}
+                                        </p>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        className="w-4 h-4 rounded border-input bg-background disabled:opacity-40"
+                                        checked={gitStatus.enabled && !gitStatus.sync_disabled}
+                                        disabled={!gitStatus.enabled}
+                                        onChange={handleToggleSync}
+                                        title={gitStatus.enabled ? "Toggle Sync" : "Sync Disabled (No Config)"}
+                                    />
+                                </div>
+
+                                {/* Configuration Status Grid */}
+                                <div className="space-y-3 pt-1 text-sm">
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <span className="text-muted-foreground font-medium">GitHub CLI</span>
+                                        <span className={`col-span-2 font-mono font-semibold ${gitStatus.gh_installed ? "text-green-500" : "text-amber-500"}`}>
+                                            {gitStatus.gh_installed ? "Installed" : "Not Installed"}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <span className="text-muted-foreground font-medium">GH Auth Status</span>
+                                        <span className={`col-span-2 font-mono font-semibold ${gitStatus.gh_logged_in ? "text-green-500" : "text-amber-500"}`}>
+                                            {gitStatus.gh_logged_in ? "Logged In" : "Not Logged In"}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <span className="text-muted-foreground font-medium">Token Available</span>
+                                        <span className={`col-span-2 font-mono font-semibold ${gitStatus.has_token ? "text-green-500" : "text-amber-500"}`}>
+                                            {gitStatus.has_token ? "Yes" : "No"}
+                                        </span>
+                                    </div>
+                                    {gitStatus.enabled && (
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <span className="text-muted-foreground font-medium">Repository URL</span>
+                                            <span className="col-span-2 text-foreground font-mono truncate select-all" title={gitStatus.repo}>
+                                                {gitStatus.repo}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <span className="text-muted-foreground font-medium">Commit Author</span>
+                                        <span className="col-span-2 text-foreground font-mono">
+                                            {gitStatus.author_name && gitStatus.author_email
+                                                ? `${gitStatus.author_name} <${gitStatus.author_email}>`
+                                                : gitStatus.author_name
+                                                    ? gitStatus.author_name
+                                                    : <span className="text-amber-500 font-semibold">Not Configured</span>}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* gh auth status details */}
+                                {gitStatus.gh_status && (
+                                    <div className="bg-muted/30 border border-border rounded p-3 text-xs font-mono leading-5 text-muted-foreground whitespace-pre-wrap max-h-32 overflow-y-auto">
+                                        {gitStatus.gh_status}
+                                    </div>
+                                )}
+
+                                {/* Action Buttons */}
+                                <div className="pt-2 flex flex-wrap gap-2.5">
+                                    <button
+                                        onClick={() => { fetchGitStatus(); setConnectionResult(null); }}
+                                        className="px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition text-sm font-semibold"
+                                    >
+                                        Refresh Status
+                                    </button>
+                                    {gitStatus.enabled && (
+                                        <button
+                                            onClick={handleCheckConnection}
+                                            disabled={checkingConnection}
+                                            className="px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition disabled:opacity-50 text-sm font-semibold"
+                                        >
+                                            {checkingConnection ? "Checking..." : "Check Connection"}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {connectionResult && (
+                                    <div className={`p-3 rounded text-xs leading-5 border ${connectionResult.success ? "border-green-500/30 bg-green-500/5 text-green-500" : "border-destructive/30 bg-destructive/5 text-destructive"}`}>
+                                        <p className="font-bold">{connectionResult.success ? "Connection Active:" : "Connection Failed:"}</p>
+                                        <p className="mt-0.5 whitespace-pre-wrap">{connectionResult.message}</p>
+                                    </div>
+                                )}
+
+                                {/* Setup Instructions */}
+                                <details className="group">
+                                    <summary className="cursor-pointer text-sm font-semibold text-foreground hover:text-primary transition select-none py-1">
+                                        Setup Instructions
+                                    </summary>
+                                    <div className="mt-3 bg-muted/30 border border-border rounded p-4 text-xs leading-6 text-muted-foreground space-y-3">
+                                        <div>
+                                            <p className="font-bold text-foreground mb-1">1. Install the GitHub CLI</p>
+                                            <p>If <code className="bg-muted px-1 py-0.5 rounded font-mono">gh</code> is not already installed on your <strong>host machine</strong>:</p>
+                                            <ul className="list-disc list-inside mt-1 font-mono text-[10px] space-y-0.5">
+                                                <li><strong>macOS:</strong> brew install gh</li>
+                                                <li><strong>Ubuntu/Debian:</strong> sudo apt install gh</li>
+                                                <li><strong>Fedora:</strong> sudo dnf install gh</li>
+                                                <li><strong>Arch:</strong> sudo pacman -S github-cli</li>
+                                                <li><strong>Windows:</strong> winget install GitHub.cli</li>
+                                                <li><strong>Other:</strong> <a href="https://github.com/cli/cli#installation" target="_blank" rel="noopener noreferrer" className="underline text-primary">github.com/cli/cli#installation</a></li>
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-foreground mb-1">2. Authenticate with GitHub</p>
+                                            <p>Run on your host machine. The <code className="bg-muted px-1 py-0.5 rounded font-mono">--insecure-storage</code> flag is <strong>required</strong> so the token is stored in the config file (instead of your OS keyring), making it accessible to the Docker container:</p>
+                                            <code className="block bg-muted px-2 py-1 rounded font-mono mt-1">gh auth login --insecure-storage</code>
+                                            <p className="mt-1">Follow the prompts to authenticate. You can verify with:</p>
+                                            <code className="block bg-muted px-2 py-1 rounded font-mono mt-1">gh auth status</code>
+                                            <p className="mt-1.5 text-amber-500/80 text-[10px]"><strong>Note:</strong> If you previously logged in without <code className="bg-muted px-1 py-0.5 rounded font-mono">--insecure-storage</code>, your token is stored in the OS keyring and won&apos;t be visible to the container. Re-run the login command above to migrate the token to the config file.</p>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-foreground mb-1">3. Configure Git Author</p>
+                                            <p>Set your commit identity on the host machine:</p>
+                                            <div className="font-mono mt-1 space-y-0.5">
+                                                <code className="block bg-muted px-2 py-1 rounded">git config --global user.name &quot;Your Name&quot;</code>
+                                                <code className="block bg-muted px-2 py-1 rounded">git config --global user.email &quot;you@example.com&quot;</code>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-foreground mb-1">4. Configure the Repository</p>
+                                            <p>In your <code className="bg-muted px-1 py-0.5 rounded font-mono">compose.yml</code>, uncomment and set the repository URL:</p>
+                                            <code className="block bg-muted px-2 py-1 rounded font-mono mt-1">GITHUB_REPO=https://github.com/username/repo.git</code>
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-foreground mb-1">5. Volume Mounts (already configured)</p>
+                                            <p>The compose file mounts your host&apos;s <code className="bg-muted px-1 py-0.5 rounded font-mono">~/.config/gh</code> and <code className="bg-muted px-1 py-0.5 rounded font-mono">~/.gitconfig</code> into the container so authentication and git config are shared automatically.</p>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground text-center py-4">Loading git sync status...</p>
                         )}
                     </section>
 

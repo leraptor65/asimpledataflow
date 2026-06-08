@@ -2,8 +2,8 @@ FROM golang:1.25-alpine
 
 WORKDIR /app
 
-# Install git and other utilities
-RUN apk add --no-cache git gcc musl-dev
+# Install git, gh CLI, and other utilities
+RUN apk add --no-cache git gcc musl-dev github-cli
 
 # Install air for live reloading
 RUN go install github.com/air-verse/air@latest

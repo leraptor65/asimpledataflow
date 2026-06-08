@@ -7,7 +7,7 @@ ENV CHOKIDAR_USEPOLLING=true
 
 # Copy package files (we'll mount the rest of the source)
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm install -g npm@latest && npm install
 
 EXPOSE 3000
 

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -23,6 +25,8 @@ var db *sql.DB
 func main() {
 	initDB()
 	defer db.Close()
+
+	verifyGitIntegration()
 
 	r := chi.NewRouter()
 
@@ -159,5 +163,70 @@ func createSchema(db *sql.DB) {
 		log.Printf("Error creating schema: %v", err)
 	} else {
 		log.Println("Database schema initialized.")
+	}
+}
+
+func verifyGitIntegration() {
+	repo := os.Getenv("GITHUB_REPO")
+
+	if repo == "" {
+		log.Println("GitHub Sync: optional GitHub integration is disabled (GITHUB_REPO not set).")
+		return
+	}
+
+	log.Printf("GitHub Sync: optional GitHub integration is enabled for repo: %s", repo)
+
+	hasWarnings := false
+
+	// Check if gh CLI is installed
+	if _, err := exec.LookPath("gh"); err != nil {
+		log.Println("GitHub Sync: WARNING: GitHub CLI (gh) is not installed. Authentication will not work.")
+		hasWarnings = true
+	} else {
+		// Check gh auth status
+		cmd := exec.Command("gh", "auth", "status")
+		var combined bytes.Buffer
+		cmd.Stdout = &combined
+		cmd.Stderr = &combined
+		if err := cmd.Run(); err != nil {
+			log.Println("GitHub Sync: WARNING: Not authenticated with gh. Run 'gh auth login' on the host machine.")
+			hasWarnings = true
+		} else {
+			log.Println("GitHub Sync: gh auth is active.")
+		}
+
+		// Check token availability
+		tokenCmd := exec.Command("gh", "auth", "token")
+		var tokenOut bytes.Buffer
+		tokenCmd.Stdout = &tokenOut
+		tokenCmd.Stderr = nil
+		if err := tokenCmd.Run(); err != nil || strings.TrimSpace(tokenOut.String()) == "" {
+			log.Println("GitHub Sync: WARNING: No token available from 'gh auth token'. Push/pull will fail.")
+			hasWarnings = true
+		}
+	}
+
+	// Check git config
+	nameCmd := exec.Command("git", "config", "--get", "user.name")
+	var nameOut bytes.Buffer
+	nameCmd.Stdout = &nameOut
+	nameCmd.Stderr = nil
+	emailCmd := exec.Command("git", "config", "--get", "user.email")
+	var emailOut bytes.Buffer
+	emailCmd.Stdout = &emailOut
+	emailCmd.Stderr = nil
+
+	nameErr := nameCmd.Run()
+	emailErr := emailCmd.Run()
+	if nameErr != nil || emailErr != nil || strings.TrimSpace(nameOut.String()) == "" || strings.TrimSpace(emailOut.String()) == "" {
+		log.Println("GitHub Sync: NOTE: git config user.name or user.email not set. Commits will use 'App User <app@local>' as signature.")
+	} else {
+		log.Printf("GitHub Sync: Commit author: %s <%s>", strings.TrimSpace(nameOut.String()), strings.TrimSpace(emailOut.String()))
+	}
+
+	if hasWarnings {
+		log.Println("GitHub Sync: Setup completed with warnings. Check your gh auth and volume mounts.")
+	} else {
+		log.Println("GitHub Sync: Setup successfully completed with active credentials.")
 	}
 }

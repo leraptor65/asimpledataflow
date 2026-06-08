@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o main .
 
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates git
+RUN apk --no-cache add ca-certificates git github-cli
 
 WORKDIR /root/
 

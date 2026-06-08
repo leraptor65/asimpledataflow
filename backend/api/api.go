@@ -2,6 +2,7 @@ package api
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -19,6 +21,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
+	gitHttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/leraptor65/simple-data-flow/gitops"
 	"github.com/leraptor65/simple-data-flow/models"
 )
@@ -124,6 +129,11 @@ func (a *API) RegisterRoutes(r chi.Router) {
 
 	// Backlinks
 	r.Get("/api/backlinks", a.HandleGetBacklinks)
+
+	// Git status info for Settings
+	r.Get("/api/git/status", a.HandleGetGitStatus)
+	r.Post("/api/git/toggle", a.HandleToggleGitSync)
+	r.Post("/api/git/check", a.HandleCheckGitConnection)
 }
 
 func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +213,13 @@ func (a *API) HandleSaveNote(w http.ResponseWriter, r *http.Request) {
 	path, err := safePath(a.dataDir, filename)
 	if err != nil {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("HandleSaveNote mkdir: %v", err)
+		http.Error(w, "Failed to create directory", http.StatusInternalServerError)
 		return
 	}
 
@@ -1338,4 +1355,208 @@ func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 	}
 	setJSON(w)
 	json.NewEncoder(w).Encode(notes)
+}
+
+func (a *API) HandleGetGitStatus(w http.ResponseWriter, r *http.Request) {
+	repo := os.Getenv("GITHUB_REPO")
+
+	// Read local config file if exists
+	disabled := false
+	configPath := filepath.Join(a.dataDir, ".git_config.json")
+	if data, err := os.ReadFile(configPath); err == nil {
+		var cfg struct {
+			Disabled bool `json:"disabled"`
+		}
+		if err := json.Unmarshal(data, &cfg); err == nil {
+			disabled = cfg.Disabled
+		}
+	}
+
+	// Get gh auth status
+	ghStatus, ghErr := gitops.GetGHAuthStatus()
+	ghLoggedIn := ghErr == nil
+
+	// Check if gh CLI is installed
+	ghInstalled := true
+	if _, err := exec.LookPath("gh"); err != nil {
+		ghInstalled = false
+	}
+
+	// Get token availability
+	hasToken := false
+	if ghLoggedIn {
+		cmd := exec.Command("gh", "auth", "token")
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = nil
+		if err := cmd.Run(); err == nil && strings.TrimSpace(out.String()) != "" {
+			hasToken = true
+		}
+	}
+
+	// Get git config values
+	userName := ""
+	userEmail := ""
+	if gitNameCmd := exec.Command("git", "config", "--get", "user.name"); gitNameCmd != nil {
+		var out bytes.Buffer
+		gitNameCmd.Stdout = &out
+		gitNameCmd.Stderr = nil
+		if err := gitNameCmd.Run(); err == nil {
+			userName = strings.TrimSpace(out.String())
+		}
+	}
+	if gitEmailCmd := exec.Command("git", "config", "--get", "user.email"); gitEmailCmd != nil {
+		var out bytes.Buffer
+		gitEmailCmd.Stdout = &out
+		gitEmailCmd.Stderr = nil
+		if err := gitEmailCmd.Run(); err == nil {
+			userEmail = strings.TrimSpace(out.String())
+		}
+	}
+
+	status := map[string]interface{}{
+		"enabled":       repo != "",
+		"sync_disabled": disabled,
+		"repo":          repo,
+		"gh_installed":  ghInstalled,
+		"gh_logged_in":  ghLoggedIn,
+		"gh_status":     ghStatus,
+		"has_token":     hasToken,
+		"author_name":   userName,
+		"author_email":  userEmail,
+	}
+
+	setJSON(w)
+	json.NewEncoder(w).Encode(status)
+}
+
+func (a *API) HandleToggleGitSync(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
+	var req struct {
+		Disabled bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	configPath := filepath.Join(a.dataDir, ".git_config.json")
+	configData, err := json.MarshalIndent(req, "", "  ")
+	if err != nil {
+		http.Error(w, "Failed to serialize config", http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.WriteFile(configPath, configData, 0644); err != nil {
+		http.Error(w, "Failed to write config file", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *API) HandleCheckGitConnection(w http.ResponseWriter, r *http.Request) {
+	repoURL := os.Getenv("GITHUB_REPO")
+	if repoURL == "" {
+		setJSON(w)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "GITHUB_REPO environment variable is not configured.",
+		})
+		return
+	}
+
+	// Get token from gh auth
+	var token string
+	cmd := exec.Command("gh", "auth", "token")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = nil
+	if err := cmd.Run(); err == nil {
+		token = strings.TrimSpace(out.String())
+	}
+
+	if token == "" {
+		// Also try to get gh auth status for diagnostics
+		ghStatus, _ := gitops.GetGHAuthStatus()
+		msg := "No GitHub token available. Run 'gh auth login' on the host machine."
+		if ghStatus != "" {
+			msg += "\n\ngh auth status output:\n" + ghStatus
+		}
+		setJSON(w)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": msg,
+		})
+		return
+	}
+
+	gitMgr := gitops.NewGitManager(a.dataDir)
+	repo := gitMgr.InitRepo()
+	if repo == nil {
+		setJSON(w)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "Failed to initialize local git repository.",
+		})
+		return
+	}
+
+	remoteName := "origin"
+	remotes, err := repo.Remotes()
+	if err != nil {
+		setJSON(w)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("Failed to list remotes: %v", err),
+		})
+		return
+	}
+
+	var originRemote *git.Remote
+	for _, r := range remotes {
+		if r.Config().Name == remoteName {
+			originRemote = r
+			break
+		}
+	}
+
+	if originRemote == nil {
+		originRemote, err = repo.CreateRemote(&config.RemoteConfig{
+			Name: remoteName,
+			URLs: []string{repoURL},
+		})
+		if err != nil {
+			setJSON(w)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": fmt.Sprintf("Failed to create remote: %v", err),
+			})
+			return
+		}
+	}
+
+	auth := &gitHttp.BasicAuth{
+		Username: "git",
+		Password: token,
+	}
+
+	// Try listing remote references to test connection and auth
+	_, err = originRemote.List(&git.ListOptions{
+		Auth: auth,
+	})
+	if err != nil {
+		setJSON(w)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("Authentication/Connection failed: %v", err),
+		})
+		return
+	}
+
+	setJSON(w)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Successfully authenticated and connected to GitHub repository!",
+	})
 }

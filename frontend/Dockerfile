@@ -1,7 +1,7 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm install -g npm@latest && npm ci
 
 COPY . .
 # Use a placeholder backend url during build if needed

@@ -5,11 +5,14 @@ services:
       - "3000:3000"
     volumes:
       - ./notes:/app/data
+      - ~/.config/gh:/root/.config/gh:ro    # Mount gh CLI auth (run 'gh auth login' on host first)
+      - ~/.gitconfig:/root/.gitconfig:ro    # Mount git config (for commit author info)
     environment:
       - DB_HOST=postgres
       - DB_USER=appuser
       - DB_PASSWORD=secretpassword
       - DB_NAME=notesdb
+      # - GITHUB_REPO=https://github.com/username/repo.git # Optional: GitHub repository URL to sync notes
     depends_on:
       - postgres
     restart: unless-stopped

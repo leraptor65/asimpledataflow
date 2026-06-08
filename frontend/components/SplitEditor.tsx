@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2, ArrowUpRight } from "lucide-react";
+import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2, ArrowUpRight, Download } from "lucide-react";
 import { loader } from "@monaco-editor/react";
 
 // Self-host Monaco Editor: dynamically import to avoid SSR window errors
@@ -27,7 +27,8 @@ interface SplitEditorProps {
     note: any | null;
     onSave: (originalFilename: string, newFilename: string, content: string) => void;
     onDirtyChange?: (dirty: boolean) => void;
-    onSelectNote?: (filename: string) => void;
+    onSelectNote?: (filename: string | null) => void;
+    onSaveViewOnly?: (name: string, content: string) => void;
 }
 
 const PreCode = ({ children, ...props }: any) => {
@@ -76,7 +77,7 @@ function processWikiLinks(text: string): string {
     });
 }
 
-export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote }: SplitEditorProps) {
+export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote, onSaveViewOnly }: SplitEditorProps) {
     const [content, setContent] = useState("");
     const [originalContent, setOriginalContent] = useState("");
     const [isDirty, setIsDirty] = useState(false);
@@ -114,6 +115,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [shareUrl, setShareUrl] = useState("");
     const [shareCopied, setShareCopied] = useState(false);
+    const [expiresIn, setExpiresIn] = useState("24h");
     const [backlinks, setBacklinks] = useState<any[]>([]);
     const [showBacklinks, setShowBacklinks] = useState(true);
 
@@ -148,7 +150,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
             const res = await fetch("/api/share", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ filename: note.filename }),
+                body: JSON.stringify({ filename: note.filename, expires_in: expiresIn }),
             });
             if (res.ok) {
                 const data = await res.json();
@@ -161,6 +163,29 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
         } catch (e) {
             console.error("Failed to generate share link", e);
         }
+    };
+
+    const handleDownloadMarkdown = () => {
+        if (!note || !note.filename) return;
+        
+        let baseName = note.filename.split('/').pop() || note.filename;
+        try {
+            baseName = decodeURIComponent(baseName);
+        } catch (e) {
+            console.error("Failed to decode filename for download", e);
+        }
+
+        const downloadName = baseName.endsWith(".md") ? baseName : `${baseName}.md`;
+        const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = downloadName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        setIsShareOpen(false);
     };
 
     const fetchHistory = async () => {
@@ -240,11 +265,16 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
             setOriginalContent(note.content || "");
             setFilenameInput((note.filename || "").replace(/\.md$/, ""));
             setIsDirty(false);
+            setShareUrl("");
+            setShareCopied(false);
+            setExpiresIn("24h");
         } else {
             setContent("");
             setOriginalContent("");
             setFilenameInput("");
             setIsDirty(false);
+            setShareUrl("");
+            setShareCopied(false);
         }
     }, [note]);
 
@@ -290,7 +320,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                             const data = await res.json();
                             // Insert markdown image into content
                             const insertText = `\n![image](${data.url})\n`;
-                            setContent((prev) => prev + insertText);
+                            setContent((prev: string) => prev + insertText);
                         }
                     } catch (err) {
                         console.error("Upload failed", err);
@@ -383,6 +413,29 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
 
     return (
         <div className="relative flex-1 flex flex-col h-full overflow-hidden">
+            {note.isViewOnly && (
+                <div className="bg-primary/10 border-b border-primary/20 px-4 py-2 flex items-center justify-between text-xs md:text-sm text-primary font-medium z-10 shrink-0">
+                    <div className="flex items-center gap-2">
+                        <span className="bg-primary text-primary-foreground text-xs px-2 py-0.5 rounded-full uppercase tracking-wider font-semibold">View-Only</span>
+                        <span>This file is loaded in memory and NOT saved in your vault.</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => onSaveViewOnly?.(note.filename, content)}
+                            className="bg-primary text-primary-foreground hover:opacity-90 px-3 py-1 rounded text-xs font-semibold transition shadow-sm"
+                        >
+                            Save to Vault
+                        </button>
+                        <button
+                            onClick={() => onSelectNote?.(null)}
+                            className="hover:bg-muted p-1 rounded transition text-muted-foreground hover:text-foreground"
+                            title="Close and wipe from memory"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-2 p-3 md:p-4 border-b border-border bg-background">
                 <div className="text-lg md:text-xl font-semibold px-2 min-w-0 flex-1 md:flex-none md:w-1/2 truncate text-foreground">
                     {filenameInput}
@@ -450,7 +503,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                                 {diffMode ? <><AlertTriangle size={16} /> Confirm Revert</> : "Confirm Sync"}
                             </button>
                         </div>
-                    ) : (
+                    ) : !note.isViewOnly ? (
                         <div className="flex items-center gap-2">
                             <div className="relative flex items-center shrink-0" ref={shareRef}>
                                 <button
@@ -462,9 +515,26 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                                 </button>
                                 {isShareOpen && (
                                     <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-popover border border-border rounded-md shadow-md py-1 text-popover-foreground flex flex-col font-medium">
+                                        <div className="px-4 py-2 flex flex-col gap-1.5 border-b border-border">
+                                            <label className="text-xs text-muted-foreground font-semibold uppercase">Link Expiration</label>
+                                            <select
+                                                value={expiresIn}
+                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setExpiresIn(e.target.value)}
+                                                className="w-full bg-background border border-input rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                                            >
+                                                <option value="1h">1 Hour</option>
+                                                <option value="12h">12 Hours</option>
+                                                <option value="24h">1 Day</option>
+                                                <option value="3d">3 Days</option>
+                                                <option value="7d">1 Week</option>
+                                                <option value="14d">2 Weeks</option>
+                                                <option value="30d">1 Month</option>
+                                                <option value="never">Never</option>
+                                            </select>
+                                        </div>
                                         <button
                                             onClick={handleGenerateLink}
-                                            className="flex items-center gap-2 px-4 py-2 text-left hover:bg-muted transition-colors text-sm"
+                                            className="flex items-center gap-2 px-4 py-2.5 text-left hover:bg-muted transition-colors text-sm"
                                         >
                                             <Link2 size={16} className="text-muted-foreground" />
                                             {shareCopied ? "Link Copied!" : "Generate Link"}
@@ -502,6 +572,13 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                                             <Printer size={16} className="text-muted-foreground" />
                                             Print
                                         </button>
+                                        <button
+                                            onClick={handleDownloadMarkdown}
+                                            className="flex items-center gap-2 px-4 py-2.5 text-left hover:bg-muted transition-colors text-sm border-t border-border"
+                                        >
+                                            <Download size={16} className="text-muted-foreground" />
+                                            Download Markdown
+                                        </button>
                                     </div>
                                 )}
                             </div>
@@ -513,7 +590,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                                 {isDirty ? "Sync" : "Sync"}
                             </button>
                         </div>
-                    )}
+                    ) : null}
                 </div>
             </div>
             <div className="flex-1 flex overflow-hidden">
@@ -549,7 +626,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                         {/* Monaco Editor (Left Pane) */}
                         {viewMode !== "render" && (
                             <div className={`${viewMode === "editor" ? "w-full" : "w-1/2 border-r"} border-border h-full flex flex-col`}>
-                                <EditorToolbar onInsert={handleInsert} />
+                                {!note.isViewOnly && <EditorToolbar onInsert={handleInsert} />}
                                 <div className="flex-1">
                                     <Editor
                                         height="100%"
@@ -564,6 +641,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote 
                                             padding: { top: 16 },
                                             fontSize: 14,
                                             lineNumbers: "on",
+                                            readOnly: note.isViewOnly,
                                         }}
                                     />
                                 </div>
