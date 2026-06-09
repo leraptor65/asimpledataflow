@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings as SettingsIcon, Trash2, Monitor, Link2, Copy, ExternalLink, Image, Upload } from "lucide-react";
+import { Settings as SettingsIcon, Trash2, Monitor, Link2, Copy, ExternalLink, Image, Upload, Paintbrush, Database, Pencil } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
@@ -36,9 +36,6 @@ export default function Settings() {
     const [syncInterval, setSyncInterval] = useState("0");
     const [sharedLinks, setSharedLinks] = useState<SharedLink[]>([]);
     const [copiedToken, setCopiedToken] = useState<string | null>(null);
-    const [orphanImages, setOrphanImages] = useState<string[]>([]);
-    const [showOrphanModal, setShowOrphanModal] = useState(false);
-    const [totalImages, setTotalImages] = useState(0);
     const [biLinks, setBiLinks] = useState(true);
     const [gitStatus, setGitStatus] = useState<any | null>(null);
     const [connectionResult, setConnectionResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -248,29 +245,7 @@ export default function Settings() {
         setTimeout(() => setCopiedToken(null), 2000);
     };
 
-    const handleScanOrphans = async () => {
-        try {
-            const res = await fetch("/api/orphan-images");
-            if (res.ok) {
-                const data = await res.json();
-                setOrphanImages(data.orphaned || []);
-                setTotalImages(data.total || 0);
-                setShowOrphanModal(true);
-            }
-        } catch (e) { console.error(e); }
-    };
 
-    const handleDeleteOrphans = async () => {
-        try {
-            await fetch("/api/orphan-images", {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ images: orphanImages }),
-            });
-            setShowOrphanModal(false);
-            setOrphanImages([]);
-        } catch (e) { console.error(e); }
-    };
 
     const isExpired = (link: SharedLink) => {
         if (!link.expires_at) return false;
@@ -323,7 +298,10 @@ export default function Settings() {
 
                 <div className="space-y-6">
                     <section className="p-6 border border-border rounded-lg bg-card">
-                        <h2 className="text-xl font-semibold text-card-foreground mb-4">Appearance</h2>
+                        <h2 className="text-xl font-semibold text-card-foreground mb-4 flex items-center gap-2">
+                            <Paintbrush size={20} />
+                            Appearance
+                        </h2>
                         <div className="flex items-center justify-between">
                             <div>
                                 <h3 className="font-medium text-foreground">Theme Selection</h3>
@@ -340,6 +318,14 @@ export default function Settings() {
                                         <option value="system">System</option>
                                         <option value="light">Light</option>
                                         <option value="dark">Dark</option>
+                                        <option value="dracula">Dracula</option>
+                                        <option value="solarized-light">Solarized Light</option>
+                                        <option value="solarized-dark">Solarized Dark</option>
+                                        <option value="catppuccin">Catppuccin</option>
+                                        <option value="nord">Nord</option>
+                                        <option value="rose-pine">Rosé Pine</option>
+                                        <option value="forest">Forest</option>
+                                        <option value="midnight">Midnight</option>
                                     </select>
                                 </div>
                             )}
@@ -650,26 +636,16 @@ export default function Settings() {
                     </section>
 
                     <section className="p-6 border border-border rounded-lg bg-card">
-                        <h2 className="text-xl font-semibold text-card-foreground mb-4">Storage &amp; Maintenance</h2>
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h3 className="font-medium text-foreground">Orphan Image Cleanup</h3>
-                                <p className="text-sm text-muted-foreground mt-1">Remove images from the data directory<br />that are no longer referenced in any markdown notes.</p>
-                            </div>
-                            <button
-                                onClick={handleScanOrphans}
-                                className="flex items-center gap-2 px-4 py-2 bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-md transition-colors"
-                            >
-                                <Trash2 size={16} />
-                                Cleanup Images
-                            </button>
-                        </div>
-                        <div className="flex items-center justify-between pt-6 mt-6 border-t border-border/50">
-                            <div>
-                                <h3 className="font-medium text-foreground">Backup Workspace</h3>
-                                <p className="text-sm text-muted-foreground mt-1">Export all your markdown notes as a single zip archive,<br />or import an existing zip archive to your workspace.</p>
-                            </div>
-                            <div className="flex gap-2">
+                        <h2 className="text-xl font-semibold text-card-foreground mb-6 pb-2 border-b border-border/50 flex items-center gap-2">
+                            <Database size={20} />
+                            Storage &amp; Maintenance
+                        </h2>
+                        
+                        {/* Workspace Backup */}
+                        <div className="mb-8">
+                            <h3 className="font-semibold text-foreground text-base">Workspace Backup</h3>
+                            <p className="text-sm text-muted-foreground mt-1 mb-3">Export all your markdown notes as a single zip archive, or import an existing zip archive to your workspace.</p>
+                            <div className="flex gap-2 max-w-xs">
                                 <button
                                     onClick={handleExport}
                                     className="flex flex-1 justify-center items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md transition-colors font-medium">
@@ -683,106 +659,111 @@ export default function Settings() {
                                 </label>
                             </div>
                         </div>
-                    </section>
 
-                    <section className="p-6 border border-border rounded-lg bg-card">
-                        <div className="flex items-center justify-between mb-4 pb-1">
-                            <h2 className="text-xl font-semibold text-card-foreground flex items-center gap-2">
-                                <Image size={20} className="text-primary" />
-                                Image Gallery
-                            </h2>
-                            <div>
-                                <label className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-colors text-xs font-semibold cursor-pointer shadow-sm">
-                                    <Upload size={14} />
-                                    {uploadingImage ? "Uploading..." : "Upload Image"}
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        disabled={uploadingImage}
-                                        onChange={handleUploadGalleryImage}
-                                        className="hidden"
-                                    />
-                                </label>
+                        {/* Image Gallery */}
+                        <div className="mb-8 pt-6 border-t border-border/50">
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="font-semibold text-foreground text-base flex items-center gap-2">
+                                    <Image size={18} />
+                                    Image Gallery
+                                </h3>
+                                <div>
+                                    <label className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-md transition-colors text-xs font-semibold cursor-pointer shadow-sm">
+                                        <Upload size={14} />
+                                        {uploadingImage ? "Uploading..." : "Upload Image"}
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            disabled={uploadingImage}
+                                            onChange={handleUploadGalleryImage}
+                                            className="hidden"
+                                        />
+                                    </label>
+                                </div>
                             </div>
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-4">
-                            Manage uploaded images in the <code className="bg-muted px-1 py-0.5 rounded font-mono text-xs">.images/</code> folder. Copy their markdown tag to use directly in notes.
-                        </p>
+                            <p className="text-sm text-muted-foreground mb-4">
+                                Manage uploaded images in the <code className="bg-muted px-1 py-0.5 rounded font-mono text-xs">.images/</code> folder. Copy their markdown tag to use directly in notes.
+                            </p>
 
-                        {loadingImages ? (
-                            <p className="text-sm text-muted-foreground text-center py-6">Loading images...</p>
-                        ) : images.length === 0 ? (
-                            <p className="text-sm text-muted-foreground text-center py-6">No images uploaded yet.</p>
-                        ) : (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 max-h-96 overflow-y-auto pr-1">
-                                {images.map((img) => (
-                                    <div key={img} className="group relative border border-border rounded-md bg-muted/20 overflow-hidden flex flex-col hover:border-primary/50 transition">
-                                        <div className="aspect-video relative bg-background border-b border-border flex items-center justify-center overflow-hidden">
-                                            <img
-                                                src={`/images/${encodeURIComponent(img)}`}
-                                                alt={img}
-                                                className="object-contain w-full h-full p-1 transition-transform group-hover:scale-105"
-                                            />
-                                        </div>
-                                        <div className="p-2 flex flex-col gap-1">
-                                            <span className="text-xs text-foreground truncate font-mono" title={img}>
-                                                {img}
-                                            </span>
-                                            <div className="flex gap-1.5 mt-1 justify-between">
-                                                <button
-                                                    onClick={() => copyMarkdownTag(img)}
-                                                    className="flex-1 py-1 px-1.5 text-[10px] font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded transition flex items-center justify-center gap-1"
-                                                    title="Copy Markdown Reference"
-                                                >
-                                                    <Copy size={10} />
-                                                    {copiedImage === img ? "Copied!" : "Copy Tag"}
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteGalleryImage(img)}
-                                                    className="py-1 px-1.5 text-[10px] font-semibold bg-destructive/10 text-destructive hover:bg-destructive/20 rounded transition flex items-center justify-center"
-                                                    title="Delete Image"
-                                                >
-                                                    <Trash2 size={10} />
-                                                </button>
+                            {loadingImages ? (
+                                <p className="text-sm text-muted-foreground text-center py-6">Loading images...</p>
+                            ) : images.length === 0 ? (
+                                <p className="text-sm text-muted-foreground text-center py-6">No images uploaded yet.</p>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 max-h-96 overflow-y-auto pr-1">
+                                    {images.map((img) => (
+                                        <div key={img} className="group relative border border-border rounded-md bg-muted/20 overflow-hidden flex flex-col hover:border-primary/50 transition">
+                                            <div className="aspect-video relative bg-background border-b border-border flex items-center justify-center overflow-hidden">
+                                                <img
+                                                    src={`/images/${encodeURIComponent(img)}`}
+                                                    alt={img}
+                                                    className="object-contain w-full h-full p-1 transition-transform group-hover:scale-105"
+                                                />
+                                            </div>
+                                            <div className="p-2 flex flex-col gap-1">
+                                                <span className="text-xs text-foreground truncate font-mono" title={img}>
+                                                    {img}
+                                                </span>
+                                                <div className="flex gap-1.5 mt-1 justify-between">
+                                                    <button
+                                                        onClick={() => copyMarkdownTag(img)}
+                                                        className="flex-1 py-1 px-1.5 text-[10px] font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded transition flex items-center justify-center gap-1"
+                                                        title="Copy Markdown Reference"
+                                                    >
+                                                        <Copy size={10} />
+                                                        {copiedImage === img ? "Copied!" : "Copy Tag"}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteGalleryImage(img)}
+                                                        className="py-1 px-1.5 text-[10px] font-semibold bg-destructive/10 text-destructive hover:bg-destructive/20 rounded transition flex items-center justify-center"
+                                                        title="Delete Image"
+                                                    >
+                                                        <Trash2 size={10} />
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </section>
-
-                    <section className="p-6 border border-border rounded-lg bg-card">
-                        <h2 className="text-xl font-semibold text-card-foreground mb-4">Editor Preferences</h2>
-                        <p className="text-sm text-muted-foreground mb-4">Configure default behaviors for the Monaco Editor.</p>
-                        <div className="flex items-center justify-between py-3 border-b border-border/50">
-                            <span className="text-foreground text-sm font-medium">Auto-Sync Interval</span>
-                            <select
-                                value={syncInterval}
-                                onChange={handleSyncChange}
-                                className="appearance-none bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                            >
-                                <option value="0">Manual Only</option>
-                                <option value="60000">1 Minute</option>
-                                <option value="300000">5 Minutes</option>
-                                <option value="600000">10 Minutes</option>
-                                <option value="3600000">1 Hour</option>
-                                <option value="86400000">1 Day</option>
-                                <option value="604800000">1 Week</option>
-                                <option value="2592000000">1 Month</option>
-                            </select>
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                        <div className="flex items-center justify-between py-3">
-                            <span className="text-foreground text-sm font-medium">Enable Bidirectional Links</span>
-                            <input
-                                type="checkbox"
-                                className="w-4 h-4 rounded border-input bg-background"
-                                checked={biLinks}
-                                onChange={(e) => {
-                                    setBiLinks(e.target.checked);
-                                    localStorage.setItem("asdf_bidirectional_links", String(e.target.checked));
-                                }}
-                            />
+
+                        {/* Editor Preferences */}
+                        <div className="pt-6 border-t border-border/50">
+                            <h3 className="font-semibold text-foreground text-base mb-2 flex items-center gap-2">
+                                <Pencil size={18} />
+                                Editor Preferences
+                            </h3>
+                            <p className="text-sm text-muted-foreground mb-4">Configure default behaviors for the Monaco Editor.</p>
+                            <div className="flex items-center justify-between py-3 border-b border-border/30">
+                                <span className="text-foreground text-sm font-medium">Auto-Sync Interval</span>
+                                <select
+                                    value={syncInterval}
+                                    onChange={handleSyncChange}
+                                    className="appearance-none bg-background border border-input rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                                >
+                                    <option value="0">Manual Only</option>
+                                    <option value="60000">1 Minute</option>
+                                    <option value="300000">5 Minutes</option>
+                                    <option value="600000">10 Minutes</option>
+                                    <option value="3600000">1 Hour</option>
+                                    <option value="86400000">1 Day</option>
+                                    <option value="604800000">1 Week</option>
+                                    <option value="2592000000">1 Month</option>
+                                </select>
+                            </div>
+                            <div className="flex items-center justify-between py-3">
+                                <span className="text-foreground text-sm font-medium">Enable Bidirectional Links</span>
+                                <input
+                                    type="checkbox"
+                                    className="w-4 h-4 rounded border-input bg-background"
+                                    checked={biLinks}
+                                    onChange={(e) => {
+                                        setBiLinks(e.target.checked);
+                                        localStorage.setItem("asdf_bidirectional_links", String(e.target.checked));
+                                    }}
+                                />
+                            </div>
                         </div>
                     </section>
 
@@ -797,50 +778,7 @@ export default function Settings() {
                 </div>
             </div>
 
-            {/* Orphan Image Cleanup Modal */}
-            {showOrphanModal && (
-                <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-[100]">
-                    <div className="bg-card w-full max-w-md rounded-lg border border-border p-6 shadow-xl">
-                        <h3 className="text-lg font-bold mb-2">Orphan Image Cleanup</h3>
-                        <p className="text-sm text-muted-foreground mb-4">
-                            Found {totalImages} total images. {orphanImages.length} orphaned (not referenced in any note).
-                        </p>
-                        {orphanImages.length === 0 ? (
-                            <>
-                                <p className="text-sm text-green-500 text-center py-4">No orphaned images found!</p>
-                                <button
-                                    onClick={() => setShowOrphanModal(false)}
-                                    className="w-full px-4 py-2 bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 transition"
-                                >
-                                    Close
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                <div className="max-h-48 overflow-y-auto border border-border rounded p-2 mb-4 space-y-1">
-                                    {orphanImages.map((img) => (
-                                        <div key={img} className="text-xs text-muted-foreground font-mono truncate">{img}</div>
-                                    ))}
-                                </div>
-                                <div className="flex gap-3">
-                                    <button
-                                        onClick={() => setShowOrphanModal(false)}
-                                        className="flex-1 px-4 py-2 bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 transition"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleDeleteOrphans}
-                                        className="flex-1 px-4 py-2 bg-destructive text-destructive-foreground rounded hover:opacity-90 transition"
-                                    >
-                                        Delete {orphanImages.length} Image{orphanImages.length !== 1 ? 's' : ''}
-                                    </button>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
+
         </div>
     );
 }

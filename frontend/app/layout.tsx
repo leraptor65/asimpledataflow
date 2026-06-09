@@ -28,7 +28,7 @@ export default function RootLayout({
           defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
-          themes={['light', 'dark', 'vscode-dark']}
+          themes={['light', 'dark', 'dracula', 'solarized-light', 'solarized-dark', 'catppuccin', 'nord', 'rose-pine', 'forest', 'midnight']}
         >
           {children}
         </ThemeProvider>

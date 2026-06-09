@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2, ArrowUpRight, Download } from "lucide-react";
 import { loader } from "@monaco-editor/react";
+import { useTheme } from "next-themes";
 
 // Self-host Monaco Editor: dynamically import to avoid SSR window errors
 if (typeof window !== "undefined") {
@@ -78,6 +79,8 @@ function processWikiLinks(text: string): string {
 }
 
 export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote, onSaveViewOnly }: SplitEditorProps) {
+    const { theme } = useTheme();
+    const monacoTheme = (theme === "light" || theme === "solarized-light") ? "light" : "vs-dark";
     const [content, setContent] = useState("");
     const [originalContent, setOriginalContent] = useState("");
     const [isDirty, setIsDirty] = useState(false);
@@ -603,7 +606,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                         <DiffEditor
                             height="100%"
                             language="markdown"
-                            theme="vs-dark"
+                            theme={monacoTheme}
                             original={diffMode ? historicalContent : latestLocalContent}
                             modified={content}
                             onMount={syncDiffMode ? ((editor) => {
@@ -631,7 +634,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                                     <Editor
                                         height="100%"
                                         defaultLanguage="markdown"
-                                        theme="vs-dark"
+                                        theme={monacoTheme}
                                         value={content}
                                         onChange={handleEditorChange}
                                         onMount={handleEditorMount}

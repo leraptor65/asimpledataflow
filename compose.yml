@@ -1,12 +1,12 @@
 services:
   app:
-    image: leraptor65/asimpledataflow:testing
+    image: leraptor65/asimpledataflow:latest
     ports:
       - "3000:3000"
     volumes:
       - ./notes:/app/data
-      - ~/.config/gh:/root/.config/gh:ro    # Mount gh CLI auth (run 'gh auth login' on host first)
-      - ~/.gitconfig:/root/.gitconfig:ro    # Mount git config (for commit author info)
+      - ~/.config/gh:/root/.config/gh:ro # Mount gh CLI auth (run 'gh auth login' on host first)
+      - ~/.gitconfig:/root/.gitconfig:ro # Mount git config (for commit author info)
     environment:
       - DB_HOST=postgres
       - DB_USER=appuser

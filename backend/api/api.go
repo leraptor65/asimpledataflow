@@ -125,9 +125,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	// Image serving
 	r.Get("/images/*", a.HandleServeImage)
 
-	// Orphan image cleanup
-	r.Get("/api/orphan-images", a.HandleGetOrphanImages)
-	r.Delete("/api/orphan-images", a.HandleDeleteOrphanImages)
+
 
 	// Image gallery management
 	r.Get("/api/images", a.HandleListImages)
@@ -1248,110 +1246,6 @@ func (a *API) HandleServeSharedImage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, cleanPath)
 }
 
-var imageRefRegex = regexp.MustCompile(`!\[.*?\]\(/images/([^)]+)\)`)
-
-func (a *API) HandleGetOrphanImages(w http.ResponseWriter, r *http.Request) {
-	// 1. Get all images on disk
-	imagesDir := filepath.Join(a.dataDir, ".images")
-	diskImages := map[string]bool{}
-
-	entries, err := os.ReadDir(imagesDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			setJSON(w)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"orphaned": []string{},
-				"total":    0,
-			})
-			return
-		}
-		log.Printf("HandleGetOrphanImages: %v", err)
-		http.Error(w, "Failed to get orphan images", http.StatusInternalServerError)
-		return
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			diskImages[entry.Name()] = true
-		}
-	}
-
-	// 2. Scan all note content for image references
-	rows, err := a.db.Query("SELECT content FROM notes")
-	if err != nil {
-		log.Printf("HandleGetOrphanImages query: %v", err)
-		http.Error(w, "Failed to scan notes", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	referencedImages := map[string]bool{}
-	for rows.Next() {
-		var content string
-		if err := rows.Scan(&content); err != nil {
-			continue
-		}
-		matches := imageRefRegex.FindAllStringSubmatch(content, -1)
-		for _, match := range matches {
-			if len(match) > 1 {
-				referencedImages[match[1]] = true
-			}
-		}
-	}
-
-	// 3. Find orphaned images (on disk but not referenced)
-	var orphaned []string
-	for img := range diskImages {
-		if !referencedImages[img] {
-			orphaned = append(orphaned, img)
-		}
-	}
-
-	if orphaned == nil {
-		orphaned = []string{}
-	}
-
-	setJSON(w)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"orphaned": orphaned,
-		"total":    len(diskImages),
-	})
-}
-
-func (a *API) HandleDeleteOrphanImages(w http.ResponseWriter, r *http.Request) {
-	limitBody(r, maxJSONBodySize)
-	var req struct {
-		Images []string `json:"images"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	imagesDir := filepath.Join(a.dataDir, ".images")
-	var deleted []string
-	for _, img := range req.Images {
-		// Security: only allow filenames, no path traversal
-		safe := sanitizeFilename(img)
-		if safe == "" || safe != img {
-			continue
-		}
-		fullPath := filepath.Join(imagesDir, safe)
-		if err := os.Remove(fullPath); err == nil {
-			deleted = append(deleted, safe)
-		}
-	}
-
-	if len(deleted) > 0 {
-		git := gitops.NewGitManager(a.dataDir)
-		git.CommitAll("Cleanup orphan images")
-	}
-
-	setJSON(w)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"deleted": deleted,
-	})
-}
 
 func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 	filename := r.URL.Query().Get("file")

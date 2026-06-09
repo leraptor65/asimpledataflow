@@ -14,10 +14,9 @@ A high-performance, locally-first Markdown note-taking app built with a Go backe
    - [Importing Notes & The View-Only Sandbox](#3-importing-notes--the-view-only-sandbox)
    - [Git Version History & Note Reversion](#4-git-version-history--note-reversion)
    - [Public Note Sharing & Expiry](#5-public-note-sharing--expiry)
-   - [Orphan Image Scanning & Cleanup](#6-orphan-image-scanning--cleanup)
-   - [Vault Export & Import](#7-vault-export--import)
-   - [Image Gallery & Asset Management](#8-image-gallery--asset-management)
-   - [Database Synchronization & Search Reconciliation](#9-database-synchronization--search-reconciliation)
+   - [Vault Export & Import](#6-vault-export--import)
+   - [Image Gallery & Asset Management](#7-image-gallery--asset-management)
+   - [Database Synchronization & Search Reconciliation](#8-database-synchronization--search-reconciliation)
 5. [GitHub Sync Integration](#-github-sync-integration-optional)
 6. [Bypassing Authentication Proxies for Shares](#-bypassing-authentication-proxies-for-shares)
 7. [Development Setup](#-development-setup)
@@ -155,21 +154,16 @@ volumes:
 - **Linked Navigation**: Shared notes allow viewers to navigate into other shared notes if they are linked via wiki links.
 - **Management**: Revoke links or adjust expirations at any time via the **Shared Links** section in the **Settings** panel.
 
-### 6. Orphan Image Scanning & Cleanup
-- **Upload Images**: Drag-and-drop or paste images directly into the Monaco editor. They are saved to `/app/data/.images/`.
-- **Scan & Clean**: Over time, deleted notes may leave behind unused images. Go to **Settings → Storage & Maintenance** and click **Cleanup Images**.
-- **Automated Verification**: The system will scan all notes in the database. If an image file in `.images/` is not referenced in any note, it will be listed for batch deletion.
-
-### 7. Vault Export & Import
+### 6. Vault Export & Import
 - **Export Vault**: Go to **Settings → Backup Workspace** and click **Export**. This compiles your entire Markdown vault, including folders and images, into a download file named `vault-export.zip`.
 - **Import Vault**: Click **Import** and upload a ZIP archive of Markdown notes. The server parses the file, extracts it securely, avoids directory traversals, and commits the imported files to Git.
 
-### 8. Image Gallery & Asset Management
+### 7. Image Gallery & Asset Management
 - **Gallery Grid**: Under the **Storage & Maintenance** section in the settings panel, there is an **Image Gallery** showcasing all images stored in the `.images/` directory.
 - **Copy Markdown Reference**: Hover over any image card in the gallery and click the **Copy Markdown** icon to copy its exact Markdown embedding syntax (e.g. `![alt](/images/filename.png)`) directly to your clipboard.
 - **Direct Upload & Delete**: Upload new images to use in notes via drag-and-drop or file selector, or permanently delete images. Deleting an image also runs a Git commit to sync your changes.
 
-### 9. Database Synchronization & Search Reconciliation
+### 8. Database Synchronization & Search Reconciliation
 - **Fuzzy Ranked Search**: Searching in the sidebar or Command Palette (`Ctrl+K`) ranks note matches with highest weight on the note filename, followed by body content. Results display only the base note title, with the directory path shown as faded subtext.
 - **Stale Record Pruning**: When folders or notes are moved or deleted, the Postgres database is updated. If notes are renamed, deleted, or moved externally (e.g. via Git pull or manual disk operations), you can manually reconcile the database by clicking the **Refresh Workspace** icon at the bottom of the sidebar.
 - **Sync Actions**: Database synchronization is also triggered automatically on startup, after saving notes, importing vaults, pulling from GitHub, or running a Git connection check.
