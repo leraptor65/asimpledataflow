@@ -31,6 +31,7 @@ RUN apk add --no-cache nodejs git
 # Create data directory for notes
 RUN mkdir -p /app/data
 ENV DATA_DIR="/app/data"
+ENV HOSTNAME="0.0.0.0"
 
 # Copy the Backend Binary
 COPY --from=backend-builder /app/backend/simple-data-flow /app/backend-server
