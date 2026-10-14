@@ -8,6 +8,7 @@ type Note struct {
 	Title        string    `json:"title"`
 	Frontmatter  string    `json:"frontmatter"` // JSON string
 	Content      string    `json:"content"`
+	IsPinned     bool      `json:"is_pinned"`
 	LastModified time.Time `json:"last_modified"`
 }
 

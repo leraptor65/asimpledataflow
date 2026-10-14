@@ -1,13 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	_ "github.com/lib/pq"
+	_ "modernc.org/sqlite"
 
 	"github.com/leraptor65/simple-data-flow/api"
 	"github.com/leraptor65/simple-data-flow/watcher"
@@ -23,7 +23,13 @@ import (
 var db *sql.DB
 
 func main() {
-	initDB()
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		dataDir = "/app/data"
+	}
+	os.MkdirAll(dataDir, 0755)
+
+	initDB(dataDir)
 	defer db.Close()
 
 	verifyGitIntegration()
@@ -48,29 +54,24 @@ func main() {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   allowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-authentik-username", "Remote-User", "X-Forwarded-User"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		dataDir = "/app/data"
-	}
-	os.MkdirAll(dataDir, 0755)
-
-	// Start Watcher
-	w := watcher.NewWatcher(db, dataDir)
-	w.Start()
-
-	// Setup API
+	// Setup API & Auth
 	a := api.NewAPI(db, dataDir)
+	r.Use(a.AuthMiddleware)
 	a.RegisterRoutes(r)
 
 	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	})
+
+	// Start Watcher
+	w := watcher.NewWatcher(db, dataDir)
+	w.Start()
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -81,7 +82,100 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, r))
 }
 
-func initDB() {
+func initDB(dataDir string) {
+	dbDriver := os.Getenv("DB_DRIVER")
+	dbHost := os.Getenv("DB_HOST")
+
+	// If Postgres is explicitly requested via DB_DRIVER=postgres or non-empty DB_HOST
+	if dbDriver == "postgres" || (dbDriver == "" && dbHost != "") {
+		initPostgres()
+		return
+	}
+
+	initSQLite(dataDir)
+}
+
+func initSQLite(dataDir string) {
+	dbPath := filepath.Join(dataDir, ".asdf.db")
+	log.Printf("Connecting to embedded SQLite database at: %s", dbPath)
+
+	var err error
+	db, err = sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)")
+	if err != nil {
+		log.Fatalf("Error opening SQLite database: %v", err)
+	}
+
+	if err = db.Ping(); err != nil {
+		log.Fatalf("Error connecting to SQLite database: %v", err)
+	}
+
+	createSQLiteSchema(db)
+	log.Println("SQLite database initialized successfully.")
+}
+
+func createSQLiteSchema(db *sql.DB) {
+	schema := `
+	CREATE TABLE IF NOT EXISTS notes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		filename TEXT UNIQUE NOT NULL,
+		title TEXT,
+		frontmatter TEXT DEFAULT '{}',
+		content TEXT,
+		is_pinned INTEGER NOT NULL DEFAULT 0,
+		last_modified DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_notes_filename ON notes(filename);
+	CREATE INDEX IF NOT EXISTS idx_notes_is_pinned ON notes(is_pinned);
+
+	CREATE TABLE IF NOT EXISTS links (
+		source_id INTEGER REFERENCES notes(id) ON DELETE CASCADE,
+		target_id INTEGER REFERENCES notes(id) ON DELETE CASCADE,
+		PRIMARY KEY (source_id, target_id)
+	);
+
+	CREATE TABLE IF NOT EXISTS shared_links (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		token TEXT UNIQUE NOT NULL,
+		filename TEXT NOT NULL,
+		expires_at DATETIME NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS auth_sessions (
+		token TEXT PRIMARY KEY,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		expires_at DATETIME NOT NULL
+	);
+
+	CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+		filename,
+		title,
+		content,
+		content='notes',
+		content_rowid='id'
+	);
+
+	CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+		INSERT INTO notes_fts(rowid, filename, title, content) VALUES (new.id, new.filename, new.title, new.content);
+	END;
+
+	CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+		INSERT INTO notes_fts(notes_fts, rowid, filename, title, content) VALUES('delete', old.id, old.filename, old.title, old.content);
+	END;
+
+	CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+		INSERT INTO notes_fts(notes_fts, rowid, filename, title, content) VALUES('delete', old.id, old.filename, old.title, old.content);
+		INSERT INTO notes_fts(rowid, filename, title, content) VALUES (new.id, new.filename, new.title, new.content);
+	END;
+	`
+	_, err := db.Exec(schema)
+	if err != nil {
+		log.Printf("Error creating SQLite schema: %v", err)
+	}
+}
+
+func initPostgres() {
 	host := os.Getenv("DB_HOST")
 	user := os.Getenv("DB_USER")
 	password := os.Getenv("DB_PASSWORD")
@@ -95,14 +189,13 @@ func initDB() {
 		user = "appuser"
 	}
 	if password == "" {
-		log.Fatal("DB_PASSWORD environment variable is required")
+		log.Fatal("DB_PASSWORD environment variable is required for Postgres")
 	}
 	if dbname == "" {
 		dbname = "notesdb"
 	}
 	if sslmode == "" {
 		sslmode = "disable"
-		log.Println("WARNING: DB_SSLMODE not set, defaulting to 'disable'. Set DB_SSLMODE=require for production.")
 	}
 
 	connStr := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=%s", host, user, password, dbname, sslmode)
@@ -113,24 +206,22 @@ func initDB() {
 		log.Fatalf("Error connecting to database: %v", err)
 	}
 
-	// Retry connecting to Postgres until it's ready (up to 30 attempts)
 	for i := 0; i < 30; i++ {
 		err = db.Ping()
 		if err == nil {
 			log.Println("Successfully connected to Postgres!")
 			break
 		}
-		log.Printf("Waiting for Postgres to be ready (attempt %d/30): %v", i+1, err)
 		time.Sleep(2 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("Could not connect to Postgres after 30 attempts: %v", err)
+		log.Fatalf("Could not connect to Postgres: %v", err)
 	}
 
-	createSchema(db)
+	createPostgresSchema(db)
 }
 
-func createSchema(db *sql.DB) {
+func createPostgresSchema(db *sql.DB) {
 	schema := `
 	CREATE TABLE IF NOT EXISTS notes (
 		id SERIAL PRIMARY KEY,
@@ -138,6 +229,7 @@ func createSchema(db *sql.DB) {
 		title TEXT,
 		frontmatter JSONB,
 		content TEXT,
+		is_pinned INTEGER NOT NULL DEFAULT 0,
 		content_vector tsvector,
 		last_modified TIMESTAMP
 	);
@@ -157,76 +249,38 @@ func createSchema(db *sql.DB) {
 		expires_at TIMESTAMP NULL,
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);
+
+	CREATE TABLE IF NOT EXISTS auth_sessions (
+		token TEXT PRIMARY KEY,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+		expires_at TIMESTAMP NOT NULL
+	);
 	`
-	_, err := db.Exec(schema)
-	if err != nil {
-		log.Printf("Error creating schema: %v", err)
-	} else {
-		log.Println("Database schema initialized.")
-	}
+	db.Exec(schema)
 }
 
 func verifyGitIntegration() {
 	repo := os.Getenv("GITHUB_REPO")
+	token := os.Getenv("GITHUB_TOKEN")
 
 	if repo == "" {
 		log.Println("GitHub Sync: optional GitHub integration is disabled (GITHUB_REPO not set).")
 		return
 	}
 
-	log.Printf("GitHub Sync: optional GitHub integration is enabled for repo: %s", repo)
-
-	hasWarnings := false
-
-	// Check if gh CLI is installed
-	if _, err := exec.LookPath("gh"); err != nil {
-		log.Println("GitHub Sync: WARNING: GitHub CLI (gh) is not installed. Authentication will not work.")
-		hasWarnings = true
-	} else {
-		// Check gh auth status
-		cmd := exec.Command("gh", "auth", "status")
-		var combined bytes.Buffer
-		cmd.Stdout = &combined
-		cmd.Stderr = &combined
-		if err := cmd.Run(); err != nil {
-			log.Println("GitHub Sync: WARNING: Not authenticated with gh. Run 'gh auth login' on the host machine.")
-			hasWarnings = true
-		} else {
-			log.Println("GitHub Sync: gh auth is active.")
-		}
-
-		// Check token availability
-		tokenCmd := exec.Command("gh", "auth", "token")
-		var tokenOut bytes.Buffer
-		tokenCmd.Stdout = &tokenOut
-		tokenCmd.Stderr = nil
-		if err := tokenCmd.Run(); err != nil || strings.TrimSpace(tokenOut.String()) == "" {
-			log.Println("GitHub Sync: WARNING: No token available from 'gh auth token'. Push/pull will fail.")
-			hasWarnings = true
-		}
+	if token == "" {
+		log.Printf("GitHub Sync: WARNING: GITHUB_REPO is set to %s, but GITHUB_TOKEN is missing. Automatic remote sync will fail until a token is set.", repo)
+		return
 	}
 
-	// Check git config
-	nameCmd := exec.Command("git", "config", "--get", "user.name")
-	var nameOut bytes.Buffer
-	nameCmd.Stdout = &nameOut
-	nameCmd.Stderr = nil
-	emailCmd := exec.Command("git", "config", "--get", "user.email")
-	var emailOut bytes.Buffer
-	emailCmd.Stdout = &emailOut
-	emailCmd.Stderr = nil
-
-	nameErr := nameCmd.Run()
-	emailErr := emailCmd.Run()
-	if nameErr != nil || emailErr != nil || strings.TrimSpace(nameOut.String()) == "" || strings.TrimSpace(emailOut.String()) == "" {
-		log.Println("GitHub Sync: NOTE: git config user.name or user.email not set. Commits will use 'App User <app@local>' as signature.")
-	} else {
-		log.Printf("GitHub Sync: Commit author: %s <%s>", strings.TrimSpace(nameOut.String()), strings.TrimSpace(emailOut.String()))
+	authorName := os.Getenv("GIT_AUTHOR_NAME")
+	if authorName == "" {
+		authorName = "App User"
+	}
+	authorEmail := os.Getenv("GIT_AUTHOR_EMAIL")
+	if authorEmail == "" {
+		authorEmail = "app@local"
 	}
 
-	if hasWarnings {
-		log.Println("GitHub Sync: Setup completed with warnings. Check your gh auth and volume mounts.")
-	} else {
-		log.Println("GitHub Sync: Setup successfully completed with active credentials.")
-	}
+	log.Printf("GitHub Sync: enabled for repository %s (author: %s <%s>)", repo, authorName, authorEmail)
 }

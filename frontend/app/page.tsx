@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, FileText, FolderPlus, BookOpen, Folder, ArchiveRestore, Upload, X, Home as HomeIcon } from "lucide-react";
+import { Menu, FileText, FolderPlus, BookOpen, Folder, ArchiveRestore, Upload, X, Home as HomeIcon, Lock, LogIn, Shield } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import SplitEditor from "@/components/SplitEditor";
 import CommandPalette from "@/components/CommandPalette";
@@ -16,6 +16,13 @@ export default function Home() {
   const [treeData, setTreeData] = useState<any[]>([]);
   const [selectedNote, setSelectedNote] = useState<any | null>(null);
   const [currentView, setCurrentView] = useState<"editor" | "settings">("editor");
+
+  // Authentication State
+  const [authStatus, setAuthStatus] = useState<{ auth_required: boolean; authenticated: boolean; user: string; auth_type: string } | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [isEditorDirty, setIsEditorDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<{ type: string, payload?: any } | null>(null);
@@ -38,6 +45,54 @@ export default function Home() {
     }
     return null;
   })();
+
+  const checkAuth = async () => {
+    try {
+      const res = await fetch("/api/auth/status");
+      if (res.ok) {
+        const data = await res.json();
+        setAuthStatus(data);
+        if (data.auth_required && !data.authenticated) {
+          setAuthLoading(false);
+          return false;
+        }
+      }
+    } catch (e) {
+      console.error("Auth status error", e);
+    }
+    setAuthLoading(false);
+    return true;
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError("");
+    setIsLoggingIn(true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: passwordInput }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAuthStatus({
+          auth_required: true,
+          authenticated: true,
+          user: "admin",
+          auth_type: "password",
+        });
+        fetchNotes();
+        fetchTree();
+      } else {
+        setLoginError(data.error || "Incorrect password");
+      }
+    } catch (err) {
+      setLoginError("Failed to connect to authentication server");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   const fetchTree = async () => {
     try {
@@ -72,8 +127,12 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetchNotes();
-    fetchTree();
+    checkAuth().then((isAuthed) => {
+      if (isAuthed) {
+        fetchNotes();
+        fetchTree();
+      }
+    });
   }, []);
 
   // Listen to window-level dragenter / dragover to show the dropzone overlay
@@ -265,6 +324,67 @@ export default function Home() {
     fetchNotes(query);
   };
 
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background text-foreground">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground font-medium">Loading workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authStatus && authStatus.auth_required && !authStatus.authenticated) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-background text-foreground p-4">
+        <div className="bg-card w-full max-w-sm rounded-xl border border-border p-8 shadow-2xl flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-4">
+            <Lock size={24} />
+          </div>
+          <h2 className="text-xl font-bold text-foreground">A Simple Data Flow</h2>
+          <p className="text-xs text-muted-foreground mt-1 mb-6">
+            This vault is password protected. Please authenticate to continue.
+          </p>
+
+          <form onSubmit={handleLoginSubmit} className="w-full space-y-4">
+            <div>
+              <input
+                type="password"
+                placeholder="Vault Password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                autoFocus
+                className="w-full bg-background border border-input rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 text-foreground"
+              />
+            </div>
+
+            {loginError && (
+              <p className="text-xs font-medium text-destructive text-left">{loginError}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={isLoggingIn || !passwordInput}
+              className="w-full py-2.5 bg-primary text-primary-foreground font-semibold rounded-lg hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm text-sm"
+            >
+              {isLoggingIn ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  Verifying...
+                </>
+              ) : (
+                <>
+                  <LogIn size={16} /> Enter Vault
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
       {/* Mobile header bar */}
@@ -333,6 +453,7 @@ export default function Home() {
             onSave={handleSaveNote}
             onDirtyChange={setIsEditorDirty}
             onSelectNote={handleSelectNote}
+            onRefreshTree={handleRefreshWorkspace}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground px-4 text-center">

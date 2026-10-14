@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-git/v5"
@@ -17,6 +18,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
+
+var gitMutex sync.Mutex
 
 type CommitInfo struct {
 	Hash    string    `json:"hash"`
@@ -51,6 +54,9 @@ func (g *GitManager) InitRepo() *git.Repository {
 }
 
 func (g *GitManager) CommitFile(filename string, message string) {
+	gitMutex.Lock()
+	defer gitMutex.Unlock()
+
 	repo := g.InitRepo()
 	if repo == nil {
 		return
@@ -84,6 +90,9 @@ func (g *GitManager) CommitFile(filename string, message string) {
 }
 
 func (g *GitManager) CommitAll(message string) {
+	gitMutex.Lock()
+	defer gitMutex.Unlock()
+
 	repo := g.InitRepo()
 	if repo == nil {
 		return
@@ -116,21 +125,13 @@ func (g *GitManager) CommitAll(message string) {
 	}
 }
 
-// getGHToken retrieves the GitHub auth token by running `gh auth token`.
-// Returns an empty string if gh is not installed or user is not authenticated.
+// getGHToken retrieves the GitHub auth token from the GITHUB_TOKEN environment variable.
 func getGHToken() string {
-	cmd := exec.Command("gh", "auth", "token")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(out.String())
+	return strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 }
 
 // getGitConfig retrieves a git config value by running `git config --get <key>`.
-// Returns an empty string if the key is not set.
+// Returns an empty string if the key is not set or git config fails.
 func getGitConfig(key string) string {
 	cmd := exec.Command("git", "config", "--get", key)
 	var out bytes.Buffer
@@ -142,25 +143,23 @@ func getGitConfig(key string) string {
 	return strings.TrimSpace(out.String())
 }
 
-// GetGHAuthStatus runs `gh auth status` and returns the combined output.
-func GetGHAuthStatus() (string, error) {
-	cmd := exec.Command("gh", "auth", "status")
-	var combined bytes.Buffer
-	cmd.Stdout = &combined
-	cmd.Stderr = &combined
-	err := cmd.Run()
-	return strings.TrimSpace(combined.String()), err
-}
-
 func (g *GitManager) getAuthorSignature() *object.Signature {
-	name := getGitConfig("user.name")
+	name := strings.TrimSpace(os.Getenv("GIT_AUTHOR_NAME"))
+	if name == "" {
+		name = getGitConfig("user.name")
+	}
 	if name == "" {
 		name = "App User"
 	}
-	email := getGitConfig("user.email")
+
+	email := strings.TrimSpace(os.Getenv("GIT_AUTHOR_EMAIL"))
+	if email == "" {
+		email = getGitConfig("user.email")
+	}
 	if email == "" {
 		email = "app@local"
 	}
+
 	return &object.Signature{
 		Name:  name,
 		Email: email,

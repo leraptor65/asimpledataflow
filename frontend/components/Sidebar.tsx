@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu, Upload, Home } from "lucide-react";
+import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu, Upload, Home, Pin, PinOff } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface TreeItem {
@@ -40,7 +40,8 @@ function TreeNode({
     onInitMove,
     defaultOpen = false,
     selectedNotePath,
-    onRenameNote
+    onRenameNote,
+    notes = []
 }: {
     item: TreeItem,
     level: number,
@@ -52,7 +53,8 @@ function TreeNode({
     onInitMove: (item: TreeItem) => void,
     defaultOpen?: boolean,
     selectedNotePath?: string | null,
-    onRenameNote?: (oldPath: string, newPath: string) => void
+    onRenameNote?: (oldPath: string, newPath: string) => void,
+    notes?: any[]
 }) {
     const [isOpen, setIsOpen] = useState(defaultOpen);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -261,6 +263,7 @@ function TreeNode({
                                     defaultOpen={childIsAncestor}
                                     selectedNotePath={selectedNotePath}
                                     onRenameNote={onRenameNote}
+                                    notes={notes}
                                 />
                             );
                         })}
@@ -271,6 +274,22 @@ function TreeNode({
     }
 
     const isActive = selectedNotePath === item.path;
+    const isPinned = notes ? notes.some((n: any) => n.filename === item.path && n.is_pinned) : false;
+
+    const handleTogglePin = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setIsMenuOpen(false);
+        try {
+            await fetch("/api/notes/pin", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: item.path, pinned: !isPinned })
+            });
+            setTimeout(() => onRefresh(), 300);
+        } catch (err) {
+            console.error(err);
+        }
+    };
 
     return (
         <div {...dropProps} className={`group w-full flex items-center justify-between transition text-sm pr-4 ${isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50"} ${isDragOver ? "bg-primary/20" : ""}`} style={{ paddingLeft: `${level * 16 + 16 + 18}px` }}>
@@ -284,6 +303,8 @@ function TreeNode({
                     <span title="Unsynced changes conflict with external modifications" className="shrink-0 flex items-center mt-0.5">
                         <AlertCircle size={16} className="text-amber-500" />
                     </span>
+                ) : isPinned ? (
+                    <Pin size={14} className="shrink-0 text-primary fill-primary mt-0.5" />
                 ) : (
                     <FileText size={16} className="shrink-0 opacity-70 mt-0.5" />
                 )}
@@ -303,6 +324,9 @@ function TreeNode({
                         <div className="absolute right-0 top-full mt-1 z-50 w-36 bg-popover border border-border rounded-md shadow-md py-1 text-popover-foreground flex flex-col text-xs font-medium">
                             <button onClick={handleRename} className="px-3 py-1.5 text-left hover:bg-muted transition-colors">Rename</button>
                             <button onClick={handleMoveExplicit} className="px-3 py-1.5 text-left hover:bg-muted transition-colors">Move To...</button>
+                            <button onClick={handleTogglePin} className="px-3 py-1.5 text-left hover:bg-muted transition-colors flex items-center gap-1.5">
+                                {isPinned ? <><PinOff size={12} /> Unpin</> : <><Pin size={12} /> Pin to Top</>}
+                            </button>
                             <div className="h-px bg-border my-1" />
                             <button onClick={handleDelete} className="px-3 py-1.5 text-left text-destructive hover:bg-destructive/10 transition-colors">Delete</button>
                         </div>
@@ -638,6 +662,55 @@ export default function Sidebar({
                     )
                 ) : (
                     <div className="py-2">
+                        {(() => {
+                            const pinnedNotes = notes.filter((n: any) => n.is_pinned);
+                            if (pinnedNotes.length === 0) return null;
+                            return (
+                                <div className="mb-2 border-b border-border/50 pb-2">
+                                    <div className="px-4 py-1.5 flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        <span className="flex items-center gap-1.5 text-primary">
+                                            <Pin size={13} className="fill-primary" />
+                                            Pinned Notes
+                                        </span>
+                                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-mono">{pinnedNotes.length}</span>
+                                    </div>
+                                    <ul className="space-y-0.5 mt-1">
+                                        {pinnedNotes.map((pNote) => {
+                                            const isActive = selectedNotePath === pNote.filename;
+                                            return (
+                                                <li key={`pinned-${pNote.filename}`} className="group relative flex items-center justify-between pr-3 hover:bg-muted/50 rounded-none transition">
+                                                    <button
+                                                        onClick={() => onSelectNote(pNote.filename)}
+                                                        className={`flex-1 text-left px-4 py-1.5 flex items-center gap-2 text-sm ${isActive ? "bg-primary/10 text-primary font-medium" : "text-foreground"}`}
+                                                        title={pNote.filename}
+                                                    >
+                                                        <Pin size={13} className="shrink-0 text-primary fill-primary" />
+                                                        <span className="truncate flex-1">
+                                                            {(pNote.title || pNote.filename).split('/').pop()?.replace(/\.md$/, "")}
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            await fetch("/api/notes/pin", {
+                                                                method: "POST",
+                                                                headers: { "Content-Type": "application/json" },
+                                                                body: JSON.stringify({ filename: pNote.filename, pinned: false }),
+                                                            });
+                                                            onRefreshTree();
+                                                        }}
+                                                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-destructive text-muted-foreground transition-opacity"
+                                                        title="Unpin note"
+                                                    >
+                                                        <PinOff size={13} />
+                                                    </button>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                </div>
+                            );
+                        })()}
                         {sortedTreeData.map((node) => {
                             // Determine if this node is an ancestor of the selected note
                             const isAncestor = selectedNotePath
@@ -657,6 +730,7 @@ export default function Sidebar({
                                     defaultOpen={isAncestor}
                                     selectedNotePath={selectedNotePath}
                                     onRenameNote={onRenameNote}
+                                    notes={notes}
                                 />
                             );
                         })}

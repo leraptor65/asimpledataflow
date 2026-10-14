@@ -5,6 +5,10 @@ node_modules/
 dist/
 build/
 backend/tmp/
+simple-data-flow
+backend/simple-data-flow
+backend/main
+
 
 # OS/Editor Metadata
 .DS_Store

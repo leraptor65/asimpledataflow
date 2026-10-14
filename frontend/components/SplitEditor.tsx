@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2, ArrowUpRight, Download } from "lucide-react";
+import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2, ArrowUpRight, Download, Pin } from "lucide-react";
 import { loader } from "@monaco-editor/react";
 import { useTheme } from "next-themes";
 
@@ -30,6 +30,7 @@ interface SplitEditorProps {
     onDirtyChange?: (dirty: boolean) => void;
     onSelectNote?: (filename: string | null) => void;
     onSaveViewOnly?: (name: string, content: string) => void;
+    onRefreshTree?: () => void;
 }
 
 const PreCode = ({ children, ...props }: any) => {
@@ -78,7 +79,7 @@ function processWikiLinks(text: string): string {
     });
 }
 
-export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote, onSaveViewOnly }: SplitEditorProps) {
+export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote, onSaveViewOnly, onRefreshTree }: SplitEditorProps) {
     const { theme } = useTheme();
     const monacoTheme = (theme === "light" || theme === "solarized-light") ? "light" : "vs-dark";
     const [content, setContent] = useState("");
@@ -86,9 +87,27 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
     const [isDirty, setIsDirty] = useState(false);
     const [filenameInput, setFilenameInput] = useState("");
     const [isSaved, setIsSaved] = useState(false);
+    const [isPinned, setIsPinned] = useState(Boolean(note?.is_pinned));
     const [viewMode, setViewMode] = useState<"editor" | "split" | "render">("render");
     const [showHistory, setShowHistory] = useState(false);
     const [history, setHistory] = useState<any[]>([]);
+
+    const handleTogglePin = async () => {
+        if (!note || !note.filename) return;
+        const nextPinned = !isPinned;
+        setIsPinned(nextPinned);
+        try {
+            await fetch("/api/notes/pin", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: note.filename, pinned: nextPinned }),
+            });
+            if (onRefreshTree) onRefreshTree();
+        } catch (e) {
+            console.error("Failed to toggle pin", e);
+            setIsPinned(!nextPinned);
+        }
+    };
 
     // On mobile, fallback from split to render
     useEffect(() => {
@@ -268,6 +287,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
             setOriginalContent(note.content || "");
             setFilenameInput((note.filename || "").replace(/\.md$/, ""));
             setIsDirty(false);
+            setIsPinned(Boolean(note.is_pinned));
             setShareUrl("");
             setShareCopied(false);
             setExpiresIn("24h");
@@ -276,6 +296,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
             setOriginalContent("");
             setFilenameInput("");
             setIsDirty(false);
+            setIsPinned(false);
             setShareUrl("");
             setShareCopied(false);
         }
@@ -475,6 +496,20 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                     >
                         <History size={16} />
                     </button>
+
+                    {!note.isViewOnly && (
+                        <button
+                            onClick={handleTogglePin}
+                            className={`flex items-center justify-center w-9 h-9 rounded-md transition-colors ${
+                                isPinned
+                                    ? "bg-primary/20 text-primary hover:bg-primary/30"
+                                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                            }`}
+                            title={isPinned ? "Unpin Note" : "Pin Note to Top"}
+                        >
+                            <Pin size={16} className={isPinned ? "fill-primary" : ""} />
+                        </button>
+                    )}
 
                     {isSaved && !diffMode && !showUndo && (
                         <span className="text-sm text-green-500 font-medium flex items-center gap-1 transition-opacity duration-300">

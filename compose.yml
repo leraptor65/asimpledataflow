@@ -2,30 +2,18 @@ services:
   app:
     image: leraptor65/asimpledataflow:latest
     ports:
-      - "3000:3000"
+      - "${PORT:-3001}:3000"
     volumes:
       - ./notes:/app/data
-      - ~/.config/gh:/root/.config/gh:ro # Mount gh CLI auth (run 'gh auth login' on host first)
-      - ~/.gitconfig:/root/.gitconfig:ro # Mount git config (for commit author info)
     environment:
-      - DB_HOST=postgres
-      - DB_USER=appuser
-      - DB_PASSWORD=secretpassword
-      - DB_NAME=notesdb
-      # - GITHUB_REPO=https://github.com/username/repo.git # Optional: GitHub repository URL to sync notes
-    depends_on:
-      - postgres
+      - DATA_DIR=/app/data
+      # Web access password protection
+      - APP_PASSWORD=vaultsecret
+      # Optional: Forward-auth header from reverse proxy (e.g., Authentik, Authelia, Cloudflare)
+      # - AUTH_HEADER=X-authentik-username
+      # Optional: GitHub repository URL and Personal Access Token for cloud sync
+      # - GITHUB_REPO=https://github.com/username/my-notes.git
+      # - GITHUB_TOKEN=ghp_yourPersonalAccessTokenHere
+      # - GIT_AUTHOR_NAME=ASDF Notes
+      # - GIT_AUTHOR_EMAIL=notes@asdf.local
     restart: unless-stopped
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: secretpassword
-      POSTGRES_DB: notesdb
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-
-volumes:
-  pgdata:

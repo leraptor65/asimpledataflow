@@ -2,9 +2,13 @@
 const nextConfig = {
     output: 'standalone',
     turbopack: {},
-    allowedDevOrigins: ['localhost', '127.0.0.1', '10.10.10.202'],
+    allowedDevOrigins: process.env.ALLOWED_DEV_ORIGINS ? process.env.ALLOWED_DEV_ORIGINS.split(',') : ['localhost', '127.0.0.1'],
     async rewrites() {
         return [
+            {
+                source: '/notes/:path*',
+                destination: '/',
+            },
             {
                 source: '/api/:path*',
                 destination: `${process.env.BACKEND_URL || 'http://localhost:8080'}/api/:path*`,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings as SettingsIcon, Trash2, Monitor, Link2, Copy, ExternalLink, Image, Upload, Paintbrush, Database, Pencil } from "lucide-react";
+import { Settings as SettingsIcon, Trash2, Monitor, Link2, Copy, ExternalLink, Image, Upload, Paintbrush, Database, Pencil, Shield, Lock, LogOut, CheckCircle2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 
@@ -37,6 +37,7 @@ export default function Settings() {
     const [sharedLinks, setSharedLinks] = useState<SharedLink[]>([]);
     const [copiedToken, setCopiedToken] = useState<string | null>(null);
     const [biLinks, setBiLinks] = useState(true);
+    const [authStatus, setAuthStatus] = useState<any | null>(null);
     const [gitStatus, setGitStatus] = useState<any | null>(null);
     const [connectionResult, setConnectionResult] = useState<{ success: boolean; message: string } | null>(null);
     const [checkingConnection, setCheckingConnection] = useState(false);
@@ -56,11 +57,32 @@ export default function Settings() {
         if (savedSync) setSyncInterval(savedSync);
         const savedBiLinks = localStorage.getItem("asdf_bidirectional_links");
         setBiLinks(savedBiLinks !== "false");
+        fetchAuthStatus();
         fetchSharedLinks();
         fetchGitStatus();
         fetchVersion();
         fetchImages();
     }, []);
+
+    const fetchAuthStatus = async () => {
+        try {
+            const res = await fetch("/api/auth/status");
+            if (res.ok) {
+                setAuthStatus(await res.json());
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleLogout = async () => {
+        try {
+            await fetch("/api/auth/logout", { method: "POST" });
+            window.location.reload();
+        } catch (e) {
+            console.error(e);
+        }
+    };
 
     const fetchGitStatus = async () => {
         setRefreshingStatus(true);
@@ -297,6 +319,63 @@ export default function Settings() {
                 </div>
 
                 <div className="space-y-6">
+                    {/* Security & Authentication Section */}
+                    <section className="p-6 border border-border rounded-lg bg-card">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-semibold text-card-foreground flex items-center gap-2">
+                                <Shield size={20} />
+                                Security &amp; Access Control
+                            </h2>
+                            {authStatus && (
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1.5 ${authStatus.auth_required ? "bg-green-500/10 text-green-500" : "bg-muted text-muted-foreground"}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${authStatus.auth_required ? "bg-green-500" : "bg-muted-foreground"}`} />
+                                    {authStatus.auth_required ? "Protected" : "Open Access"}
+                                </span>
+                            )}
+                        </div>
+                        {authStatus ? (
+                            <div className="space-y-3 text-sm">
+                                <div className="grid grid-cols-3 gap-2 py-2 border-b border-border/40">
+                                    <span className="text-muted-foreground font-medium">Auth Mode</span>
+                                    <span className="col-span-2 font-medium text-foreground">
+                                        {authStatus.auth_type === "forward_auth"
+                                            ? "Forward Auth (Authentik / Authelia / Reverse Proxy)"
+                                            : authStatus.auth_type === "password" || authStatus.auth_type === "token"
+                                                ? "Password Protected (APP_PASSWORD)"
+                                                : "Open Access (No password configured)"}
+                                    </span>
+                                </div>
+                                {authStatus.user && (
+                                    <div className="grid grid-cols-3 gap-2 py-2 border-b border-border/40">
+                                        <span className="text-muted-foreground font-medium">Logged In User</span>
+                                        <span className="col-span-2 font-mono text-primary font-semibold">
+                                            {authStatus.user}
+                                        </span>
+                                    </div>
+                                )}
+                                <div className="pt-2 flex items-center justify-between">
+                                    <p className="text-xs text-muted-foreground">
+                                        {authStatus.auth_type === "forward_auth"
+                                            ? "User identity passed securely by reverse proxy header (e.g. X-authentik-username, Remote-User)."
+                                            : authStatus.auth_required
+                                                ? "Active session authenticated with application password."
+                                                : "Set APP_PASSWORD in compose.yml to restrict access to this vault."}
+                                    </p>
+                                    {(authStatus.auth_type === "password" || authStatus.auth_type === "token") && (
+                                        <button
+                                            onClick={handleLogout}
+                                            className="px-3 py-1.5 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-md transition text-xs font-semibold flex items-center gap-1.5 shrink-0"
+                                        >
+                                            <LogOut size={14} /> Log Out
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Checking authentication status...</p>
+                        )}
+                    </section>
+
                     <section className="p-6 border border-border rounded-lg bg-card">
                         <h2 className="text-xl font-semibold text-card-foreground mb-4 flex items-center gap-2">
                             <Paintbrush size={20} />
@@ -451,31 +530,17 @@ export default function Settings() {
                                 {/* Configuration Status Grid */}
                                 <div className="space-y-3 pt-1 text-sm">
                                     <div className="grid grid-cols-3 gap-2">
-                                        <span className="text-muted-foreground font-medium">GitHub CLI</span>
-                                        <span className={`col-span-2 font-mono font-semibold ${gitStatus.gh_installed ? "text-green-500" : "text-amber-500"}`}>
-                                            {gitStatus.gh_installed ? "Installed" : "Not Installed"}
+                                        <span className="text-muted-foreground font-medium">Repository URL</span>
+                                        <span className="col-span-2 text-foreground font-mono truncate select-all" title={gitStatus.repo || "Not configured"}>
+                                            {gitStatus.repo || <span className="text-amber-500 font-semibold">Not Configured</span>}
                                         </span>
                                     </div>
                                     <div className="grid grid-cols-3 gap-2">
-                                        <span className="text-muted-foreground font-medium">GH Auth Status</span>
-                                        <span className={`col-span-2 font-mono font-semibold ${gitStatus.gh_logged_in ? "text-green-500" : "text-amber-500"}`}>
-                                            {gitStatus.gh_logged_in ? "Logged In" : "Not Logged In"}
-                                        </span>
-                                    </div>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <span className="text-muted-foreground font-medium">Token Available</span>
+                                        <span className="text-muted-foreground font-medium">Access Token</span>
                                         <span className={`col-span-2 font-mono font-semibold ${gitStatus.has_token ? "text-green-500" : "text-amber-500"}`}>
-                                            {gitStatus.has_token ? "Yes" : "No"}
+                                            {gitStatus.has_token ? "Configured (via GITHUB_TOKEN)" : "Not Set (Required for private repos)"}
                                         </span>
                                     </div>
-                                    {gitStatus.enabled && (
-                                        <div className="grid grid-cols-3 gap-2">
-                                            <span className="text-muted-foreground font-medium">Repository URL</span>
-                                            <span className="col-span-2 text-foreground font-mono truncate select-all" title={gitStatus.repo}>
-                                                {gitStatus.repo}
-                                            </span>
-                                        </div>
-                                    )}
                                     <div className="grid grid-cols-3 gap-2">
                                         <span className="text-muted-foreground font-medium">Commit Author</span>
                                         <span className="col-span-2 text-foreground font-mono">
@@ -487,13 +552,6 @@ export default function Settings() {
                                         </span>
                                     </div>
                                 </div>
-
-                                {/* gh auth status details */}
-                                {gitStatus.gh_status && (
-                                    <div className="bg-muted/30 border border-border rounded p-3 text-xs font-mono leading-5 text-muted-foreground whitespace-pre-wrap max-h-32 overflow-y-auto">
-                                        {gitStatus.gh_status}
-                                    </div>
-                                )}
 
                                 {/* Action Buttons */}
                                 <div className="pt-2 flex flex-wrap gap-2.5">
@@ -587,45 +645,32 @@ export default function Settings() {
                                 {/* Setup Instructions */}
                                 <details className="group">
                                     <summary className="cursor-pointer text-sm font-semibold text-foreground hover:text-primary transition select-none py-1">
-                                        Setup Instructions
+                                        Setup Instructions (Token-Based)
                                     </summary>
                                     <div className="mt-3 bg-muted/30 border border-border rounded p-4 text-xs leading-6 text-muted-foreground space-y-3">
                                         <div>
-                                            <p className="font-bold text-foreground mb-1">1. Install the GitHub CLI</p>
-                                            <p>If <code className="bg-muted px-1 py-0.5 rounded font-mono">gh</code> is not already installed on your <strong>host machine</strong>:</p>
-                                            <ul className="list-disc list-inside mt-1 font-mono text-[10px] space-y-0.5">
-                                                <li><strong>macOS:</strong> brew install gh</li>
-                                                <li><strong>Ubuntu/Debian:</strong> sudo apt install gh</li>
-                                                <li><strong>Fedora:</strong> sudo dnf install gh</li>
-                                                <li><strong>Arch:</strong> sudo pacman -S github-cli</li>
-                                                <li><strong>Windows:</strong> winget install GitHub.cli</li>
-                                                <li><strong>Other:</strong> <a href="https://github.com/cli/cli#installation" target="_blank" rel="noopener noreferrer" className="underline text-primary">github.com/cli/cli#installation</a></li>
+                                            <p className="font-bold text-foreground mb-1">1. Generate a GitHub Personal Access Token (PAT)</p>
+                                            <p>Create a token for authenticating with your repository without installing tools on your host machine:</p>
+                                            <ul className="list-disc list-inside mt-1 text-[11px] space-y-1">
+                                                <li>Go to GitHub: <strong>Settings &rarr; Developer Settings &rarr; Personal access tokens &rarr; Tokens (classic)</strong> (or fine-grained tokens).</li>
+                                                <li>Generate new token and select the <code className="bg-muted px-1.5 py-0.5 rounded font-mono">repo</code> scope (Full control of private repositories).</li>
+                                                <li>Copy your generated token (starts with <code className="bg-muted px-1.5 py-0.5 rounded font-mono">ghp_...</code>).</li>
                                             </ul>
                                         </div>
                                         <div>
-                                            <p className="font-bold text-foreground mb-1">2. Authenticate with GitHub</p>
-                                            <p>Run on your host machine. The <code className="bg-muted px-1 py-0.5 rounded font-mono">--insecure-storage</code> flag is <strong>required</strong> so the token is stored in the config file (instead of your OS keyring), making it accessible to the Docker container:</p>
-                                            <code className="block bg-muted px-2 py-1 rounded font-mono mt-1">gh auth login --insecure-storage</code>
-                                            <p className="mt-1">Follow the prompts to authenticate. You can verify with:</p>
-                                            <code className="block bg-muted px-2 py-1 rounded font-mono mt-1">gh auth status</code>
-                                            <p className="mt-1.5 text-amber-500/80 text-[10px]"><strong>Note:</strong> If you previously logged in without <code className="bg-muted px-1 py-0.5 rounded font-mono">--insecure-storage</code>, your token is stored in the OS keyring and won&apos;t be visible to the container. Re-run the login command above to migrate the token to the config file.</p>
+                                            <p className="font-bold text-foreground mb-1">2. Configure Environment Variables in Docker Compose</p>
+                                            <p>Add your repository URL and token to <code className="bg-muted px-1.5 py-0.5 rounded font-mono">compose.yml</code>:</p>
+                                            <pre className="mt-1 bg-muted p-2 rounded font-mono text-[11px] overflow-x-auto leading-relaxed">
+{`environment:
+  - GITHUB_REPO=https://github.com/username/my-notes.git
+  - GITHUB_TOKEN=ghp_yourPersonalAccessTokenHere
+  - GIT_AUTHOR_NAME=ASDF Notes
+  - GIT_AUTHOR_EMAIL=notes@asdf.local`}
+                                            </pre>
                                         </div>
                                         <div>
-                                            <p className="font-bold text-foreground mb-1">3. Configure Git Author</p>
-                                            <p>Set your commit identity on the host machine:</p>
-                                            <div className="font-mono mt-1 space-y-0.5">
-                                                <code className="block bg-muted px-2 py-1 rounded">git config --global user.name &quot;Your Name&quot;</code>
-                                                <code className="block bg-muted px-2 py-1 rounded">git config --global user.email &quot;you@example.com&quot;</code>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-foreground mb-1">4. Configure the Repository</p>
-                                            <p>In your <code className="bg-muted px-1 py-0.5 rounded font-mono">compose.yml</code>, uncomment and set the repository URL:</p>
-                                            <code className="block bg-muted px-2 py-1 rounded font-mono mt-1">GITHUB_REPO=https://github.com/username/repo.git</code>
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-foreground mb-1">5. Volume Mounts (already configured)</p>
-                                            <p>The compose file mounts your host&apos;s <code className="bg-muted px-1 py-0.5 rounded font-mono">~/.config/gh</code> and <code className="bg-muted px-1 py-0.5 rounded font-mono">~/.gitconfig</code> into the container so authentication and git config are shared automatically.</p>
+                                            <p className="font-bold text-foreground mb-1">3. Start the Application</p>
+                                            <p>Run <code className="bg-muted px-1.5 py-0.5 rounded font-mono">docker compose up -d</code>. The app will automatically initialize Git version control, commit notes when you save, and push updates directly to GitHub!</p>
                                         </div>
                                     </div>
                                 </details>

@@ -1,228 +1,202 @@
-# A Simple Data Flow (ASDF)
+# A Simple Data Flow (ASDF) — v3.0.0
 
-A high-performance, locally-first Markdown note-taking app built with a Go backend and a Next.js frontend, deployed via Docker. Features Git-backed version history, PostgreSQL full-text search, bidirectional wiki links, and a split Monaco editor.
+A high-performance, self-contained Markdown note-taking vault built with a Go backend and a Next.js frontend, delivered as a single Docker container. Features embedded SQLite with FTS5 full-text search, local Git version control, token-based GitHub sync, note pinning, and flexible authentication (web password & reverse proxy forward-auth).
 
 ---
 
 ## 📖 Table of Contents
-1. [Features](#-features)
-2. [Quick Start & Deployment](#-quick-start--deployment)
-3. [Environment & Configuration](#-environment--configuration)
-4. [How-To Guides](#-how-to-guides)
+1. [What's New in v3.0.0](#-whats-new-in-v300)
+2. [Features](#-features)
+3. [Quick Start & Deployment](#-quick-start--deployment)
+4. [Environment & Configuration](#-environment--configuration)
+5. [Authentication & Security](#-authentication--security)
+6. [GitHub Sync Integration](#-github-sync-integration-optional)
+7. [How-To Guides](#-how-to-guides)
    - [Creating & Organizing Notes](#1-creating--organizing-notes)
-   - [Bidirectional Wiki Links & Backlinks](#2-bidirectional-wiki-links--backlinks)
-   - [Importing Notes & The View-Only Sandbox](#3-importing-notes--the-view-only-sandbox)
-   - [Git Version History & Note Reversion](#4-git-version-history--note-reversion)
-   - [Public Note Sharing & Expiry](#5-public-note-sharing--expiry)
-   - [Vault Export & Import](#6-vault-export--import)
-   - [Image Gallery & Asset Management](#7-image-gallery--asset-management)
-   - [Database Synchronization & Search Reconciliation](#8-database-synchronization--search-reconciliation)
-5. [GitHub Sync Integration](#-github-sync-integration-optional)
-6. [Bypassing Authentication Proxies for Shares](#-bypassing-authentication-proxies-for-shares)
-7. [Development Setup](#-development-setup)
+   - [Note Pinning](#2-note-pinning)
+   - [Bidirectional Wiki Links & Backlinks](#3-bidirectional-wiki-links--backlinks)
+   - [Git Version History & Revert](#4-git-version-history--revert)
+   - [Public Note Sharing & Expirations](#5-public-note-sharing--expirations)
+   - [Workspace Backup & Image Gallery](#6-workspace-backup--image-gallery)
+8. [Reverse Proxy & Public Share Routing](#-reverse-proxy--public-share-routing)
+9. [Development Setup](#-development-setup)
+
+---
+
+## 🚀 What's New in v3.0.0
+
+- 🗄️ **Embedded SQLite + FTS5 (No Postgres Container)**: Migrated from external PostgreSQL to embedded pure Go SQLite (`modernc.org/sqlite`) with WAL mode and FTS5 triggers. Zero external database containers, lower RAM consumption, and instant zero-config startup.
+- 📌 **Note Pinning**: Pin frequently accessed notes to a dedicated "Pinned Notes" section at the top of your sidebar, with quick pin toggles in the editor header and folder tree context menu.
+- 🔐 **Web Password Protection (`APP_PASSWORD`)**: Protect your vault with a single environment variable. Features a responsive login screen and secure 30-day session cookies.
+- 🛡️ **Forward-Auth Integration (Authentik, Authelia, Cloudflare Access)**: Transparent authentication passthrough via reverse-proxy headers (`X-authentik-username`, `Remote-User`, `X-Forwarded-User`, or custom `AUTH_HEADER`).
+- 🔄 **100% Token-Based GitHub Sync**: Removed host `gh` CLI dependencies, `--insecure-storage` keyring flags, and host volume mounts. Sync is now configured purely with standard environment variables (`GITHUB_REPO` and `GITHUB_TOKEN`).
+- ⚡ **Next.js App Optimization**: Standalone static asset caching, route rewrites to prevent 404s on browser refreshes, and concurrent Git lock synchronization.
 
 ---
 
 ## ✨ Features
 
-### 📝 Editor & Writing
-- **Split Pane Layout**: Side-by-side view with a resizable Monaco Editor (left) and styled live Markdown preview (right).
-- **Full Markdown (GFM)**: Support for GitHub Flavored Markdown tables, KaTeX math rendering, code block syntax highlighting, and line breaks.
-- **Wiki Links**: Easy inline links using `[[Note Name]]` which auto-resolves to actual paths and tracks backlinks.
-- **View-Only Sandbox**: Secure read-only environment to review external files without importing them into your active vault.
-- **Automatic Folder Creation**: Saving a note to a nested path (e.g. `work/projects/report.md`) automatically builds all parent directories.
+### 📝 Editor & Markdown
+- **Split Pane Layout**: Side-by-side Monaco Editor (left) with styled live Markdown preview (right), full render mode, and mobile responsive layout.
+- **GFM & Math**: GitHub Flavored Markdown tables, KaTeX display/inline math, task lists (`- [x]`), syntax-highlighted code blocks with one-click copy.
+- **Bidirectional Wiki Links**: Inline links using `[[Note Name]]` that automatically resolve paths and track incoming backlinks.
+- **View-Only Sandbox**: Safely preview imported or external notes in memory without adding them to your permanent vault.
 
-### 🗂️ Organization & Management
-- **Folder Tree**: Visual, nested sidebar tree supporting folder creation and item sorting.
-- **Drag-and-Drop / Custom Upload**: Quick import of `.md` files by dragging them onto the app window.
-- **PostgreSQL Full-Text Search**: Fast, server-side index search of note content using Postgres `tsvector`.
-- **Command Palette**: Accessible via `Ctrl+K` for speedy search, file creation, and navigation.
-- **Recycle Bin**: Recover deleted files or permanently remove them from the vault.
+### 🗂️ Organization & Search
+- **Nested Folder Tree**: Visual sidebar directory tree with auto-directory creation on save, folder collapse/expand, and manual sort modes (A-Z, Z-A, Modified).
+- **FTS5 Full-Text Search**: Instant search across titles, filenames, and markdown content powered by SQLite FTS5 index tables.
+- **Command Palette (`Ctrl+K`)**: Rapid keyboard-driven search, note creation, and view switching.
+- **Recycle Bin**: Soft-delete files with restore capability or permanent deletion.
 
-### 🔄 History & Cloud Integration
-- **Git-Backed**: Every note save triggers a lightweight Git commit under the hood.
-- **Version Timeline**: View every commit, preview historical note contents, and revert to previous versions.
-- **GitHub Sync**: Bidirectional sync using the host's native `gh auth` session to push/pull updates automatically.
+### 🔄 Version History & Sync
+- **Local Git Tracking**: Every save records a Git commit with author attribution and timestamp.
+- **Diff & Rollback**: Browse commit history, inspect line-by-line diffs against previous revisions, and revert notes with one click.
+- **Automatic Remote Sync**: When configured, automatically pulls remote updates, merges changes, and pushes edits to your private GitHub repo.
 
 ---
 
-## 🚀 Quick Start & Deployment
+## 📦 Quick Start & Deployment
 
-ASDF is distributed as a multi-stage Docker application. The easiest way to run it is with Docker Compose.
+ASDF is packaged as a unified multi-stage container running both the Go backend and Next.js frontend.
 
-### Quick Launch
-1. Clone the repository and navigate to the directory:
-   ```bash
-   git clone https://github.com/leraptor65/asimpledataflow.git
-   cd asimpledataflow
-   ```
-2. Start the services:
-   ```bash
-   docker compose up -d
-   ```
-3. Open your browser and navigate to **`http://localhost:3000`**.
+### 1. Download Docker Compose File
+Create a `compose.yml` file:
+
+```yaml
+services:
+  app:
+    image: leraptor65/asimpledataflow:3.0.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./notes:/app/data
+    environment:
+      - DATA_DIR=/app/data
+      # Optional: Web access password
+      # - APP_PASSWORD=your_secure_password
+      # Optional: Reverse proxy forward auth header
+      # - AUTH_HEADER=X-authentik-username
+      # Optional: GitHub cloud sync
+      # - GITHUB_REPO=https://github.com/username/my-notes.git
+      # - GITHUB_TOKEN=ghp_yourPersonalAccessTokenHere
+      # - GIT_AUTHOR_NAME=ASDF Notes
+      # - GIT_AUTHOR_EMAIL=notes@asdf.local
+    restart: unless-stopped
+```
+
+### 2. Launch the Vault
+```bash
+docker compose up -d
+```
+Open **`http://localhost:3000`** in your browser.
 
 ---
 
 ## ⚙️ Environment & Configuration
 
-### compose.yml Configuration
-```yaml
-services:
-  app:
-    image: leraptor65/asimpledataflow:testing
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./notes:/app/data
-      # Required for GitHub Sync
-      - ~/.config/gh:/root/.config/gh:ro
-      - ~/.gitconfig:/root/.gitconfig:ro
-    environment:
-      - DB_HOST=postgres
-      - DB_USER=appuser
-      - DB_PASSWORD=your_secure_password # Required — app fails to start without this set
-      - DB_NAME=notesdb
-      # - DB_SSLMODE=require
-      # - CORS_ORIGINS=https://notes.example.com
-      # - GITHUB_REPO=https://github.com/username/your-notes-repo.git
-    depends_on:
-      - postgres
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: your_secure_password
-      POSTGRES_DB: notesdb
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-
-volumes:
-  pgdata:
-```
-
-### Environment Variables Reference
-
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DB_HOST` | No | `localhost` | PostgreSQL host address |
-| `DB_USER` | No | `appuser` | PostgreSQL username |
-| `DB_PASSWORD` | **Yes** | — | PostgreSQL password (app will crash on startup if empty) |
-| `DB_NAME` | No | `notesdb` | PostgreSQL database name |
-| `DB_SSLMODE` | No | `disable` | SSL connection mode (`disable`, `require`, `verify-ca`) |
-| `CORS_ORIGINS` | No | `*` | Allowed CORS origins (comma-separated list for security) |
-| `DATA_DIR` | No | `/app/data` | Workspace directory where Markdown files are stored |
-| `GITHUB_REPO` | No | — | Optional remote GitHub repository URL for cloud synchronization |
+| `DATA_DIR` | No | `/app/data` | Directory where notes and the `.asdf.db` SQLite database are stored |
+| `APP_PASSWORD` | No | _(disabled)_ | Set a password to require authentication before accessing the vault |
+| `AUTH_HEADER` | No | _(auto-detect)_ | Custom header to read user identity from (e.g. `X-authentik-username`) |
+| `GITHUB_REPO` | No | _(disabled)_ | HTTPS repository URL for cloud synchronization |
+| `GITHUB_TOKEN` | No | _(none)_ | Personal Access Token with `repo` scope for private GitHub sync |
+| `GIT_AUTHOR_NAME` | No | `ASDF Notes` | Git commit author name |
+| `GIT_AUTHOR_EMAIL`| No | `notes@asdf.local` | Git commit author email |
+| `PORT` | No | `3000` | Port for the web interface |
+
+---
+
+## 🔐 Authentication & Security
+
+### 1. Web Password Protection
+Set `APP_PASSWORD=your_password` in your `compose.yml`. When enabled:
+- All API routes (except public share links and health checks) require authentication.
+- Users see a clean, centered login prompt.
+- Successful login issues an HTTP-only 30-day session cookie (`asdf_session`).
+- Users can log out at any time from **Settings → Security & Access Control**.
+
+### 2. Reverse Proxy Forward-Auth (Authentik, Authelia, Cloudflare)
+If you deploy ASDF behind an authentication proxy, ASDF automatically checks the following identity headers:
+- `X-authentik-username`
+- `Remote-User`
+- `X-Forwarded-User`
+- `X-Auth-Request-User`
+- `Tailscale-User-Login`
+- Or any header configured in `AUTH_HEADER`
+
+When a valid header is present, access is granted automatically and the authenticated user is displayed in the Settings panel.
+
+---
+
+## 🔄 GitHub Sync Integration (Optional)
+
+Sync your notes vault to a private GitHub repository without installing tools on your host machine:
+
+1. **Generate a GitHub Personal Access Token (PAT)**:
+   - Go to GitHub: **Settings → Developer Settings → Personal access tokens → Tokens (classic)**.
+   - Select the **`repo`** scope (Full control of private repositories).
+   - Copy the token (`ghp_...`).
+
+2. **Configure in `compose.yml`**:
+   ```yaml
+   environment:
+     - GITHUB_REPO=https://github.com/username/my-notes.git
+     - GITHUB_TOKEN=ghp_yourTokenHere
+     - GIT_AUTHOR_NAME=Your Name
+     - GIT_AUTHOR_EMAIL=you@example.com
+   ```
+
+3. **Restart the container**:
+   ```bash
+   docker compose up -d
+   ```
+   Every note save will automatically commit and push to your remote repository. You can test connection status or trigger a manual push anytime from the **Settings** panel.
 
 ---
 
 ## 📖 How-To Guides
 
 ### 1. Creating & Organizing Notes
-- **Create a New Note**: Click the **New Note** button at the top of the sidebar. You will be prompted to enter a file name.
-- **Nest in Folders**: You can create subfolders using the folder button in the sidebar. To create a note directly in a folder, name it with the path prefix (e.g. `Projects/ASDF.md`), and the directories will be automatically created on save.
-- **Move Files/Folders**: Drag-and-drop notes and folders inside the sidebar directory tree to reorganize your vault.
-- **Delete Notes**: Click the trash icon next to a note in the sidebar. This moves it to the Recycle Bin. You can restore notes or empty the bin from the Recycle Bin modal.
+- **Create Note**: Click the **`+`** icon in the sidebar or press `Ctrl+K`.
+- **Nested Folders**: Click the **New Folder** icon or save a note with a path prefix (e.g. `Tech/Linux/Docker.md`). Parent folders are created automatically.
+- **Move / Organize**: Drag and drop items in the sidebar tree or use the **Move To...** context menu option.
 
-### 2. Bidirectional Wiki Links & Backlinks
-- **Create a Wiki Link**: Type `[[Note Name]]` inside the editor. The preview pane will render this as a clickable link.
-- **Navigate Links**: Clicking a wiki link in either the preview pane or the shared page will immediately open that note. If the target note does not exist, a blank one with that title will be created on the fly.
-- **Track Backlinks**: Check the **Backlinks** pane in the editor footer to see the list of other notes that reference the current note.
+### 2. Note Pinning
+- **Pin from Editor**: Click the **Pin** icon in the top right editor toolbar.
+- **Pin from Sidebar**: Open the three-dot (`...`) context menu on any note in the tree and select **Pin to Top**.
+- **Pinned Section**: Pinned notes appear at the very top of your sidebar with count badges and one-click unpin actions.
 
-### 3. Importing Notes & The View-Only Sandbox
-- **Drag-and-Drop Import**: Drag any `.md` file from your computer and drop it anywhere onto the ASDF web app window. Alternatively, click the **Import File** button in the sidebar.
-- **Choose Import Mode**: A modal will prompt you to:
-  1. **Save to Vault**: Select a folder destination and filename to store the note permanently.
-  2. **Open as View-Only**: Open the note in the **View-Only Sandbox**.
-- **View-Only Sandbox Features**: 
-  - Opens the file in a read-only editor with a prominent warning banner.
-  - Hides the save, share, and editing toolbar buttons.
-  - The note content remains entirely in memory and is completely wiped when you close the tab or switch notes.
+### 3. Bidirectional Wiki Links & Backlinks
+- Type `[[Note Name]]` inside the editor. The preview pane renders a clickable link.
+- Clicking a link navigates to the target note (or creates it if it doesn't exist yet).
+- Inspect incoming links in the **Backlinks** footer section of the editor.
 
-### 4. Git Version History & Note Reversion
-- **Track Commits**: Whenever you save a note, a commit is automatically recorded in the local Git repository under your data directory.
-- **View Timeline**: Open the **History** tab in the editor footer. You will see a chronological list of commits containing the author, date, and commit message.
-- **Preview Historical Content**: Click any commit hash in the timeline list to load a read-only preview of that historical revision in the editor.
-- **Revert Note**: Click the **Revert** button next to a historical commit. This resets the note's state on disk to that version and commits the change.
+### 4. Git Version History & Revert
+- Open the **History** modal from the editor toolbar.
+- Review past commits, view historical snapshots, and compare changes with the built-in diff viewer.
+- Click **Revert** to roll back any note to a previous commit.
 
-### 5. Public Note Sharing & Expiry
-- **Generate Public Link**: Click the **Share** button in the editor toolbar. This registers a cryptographically secure token.
-- **Set Expirations**: Configure links to automatically expire after durations like `1 Hour`, `12 Hours`, `1 Day`, `3 Days`, `1 Week`, `2 Weeks`, `1 Month`, or `Never`.
-- **Linked Navigation**: Shared notes allow viewers to navigate into other shared notes if they are linked via wiki links.
-- **Management**: Revoke links or adjust expirations at any time via the **Shared Links** section in the **Settings** panel.
+### 5. Public Note Sharing & Expirations
+- Click **Share** in the editor toolbar to generate a secure read-only public URL.
+- Set expiration times from `1 Hour` to `Never`.
+- Manage, adjust, or revoke active links anytime in **Settings → Shared Links**.
 
-### 6. Vault Export & Import
-- **Export Vault**: Go to **Settings → Backup Workspace** and click **Export**. This compiles your entire Markdown vault, including folders and images, into a download file named `vault-export.zip`.
-- **Import Vault**: Click **Import** and upload a ZIP archive of Markdown notes. The server parses the file, extracts it securely, avoids directory traversals, and commits the imported files to Git.
-
-### 7. Image Gallery & Asset Management
-- **Gallery Grid**: Under the **Storage & Maintenance** section in the settings panel, there is an **Image Gallery** showcasing all images stored in the `.images/` directory.
-- **Copy Markdown Reference**: Hover over any image card in the gallery and click the **Copy Markdown** icon to copy its exact Markdown embedding syntax (e.g. `![alt](/images/filename.png)`) directly to your clipboard.
-- **Direct Upload & Delete**: Upload new images to use in notes via drag-and-drop or file selector, or permanently delete images. Deleting an image also runs a Git commit to sync your changes.
-
-### 8. Database Synchronization & Search Reconciliation
-- **Fuzzy Ranked Search**: Searching in the sidebar or Command Palette (`Ctrl+K`) ranks note matches with highest weight on the note filename, followed by body content. Results display only the base note title, with the directory path shown as faded subtext.
-- **Stale Record Pruning**: When folders or notes are moved or deleted, the Postgres database is updated. If notes are renamed, deleted, or moved externally (e.g. via Git pull or manual disk operations), you can manually reconcile the database by clicking the **Refresh Workspace** icon at the bottom of the sidebar.
-- **Sync Actions**: Database synchronization is also triggered automatically on startup, after saving notes, importing vaults, pulling from GitHub, or running a Git connection check.
+### 6. Workspace Backup & Image Gallery
+- **Export / Import**: Download your entire Markdown workspace as a `.zip` archive or upload an existing vault from **Settings → Storage & Maintenance**.
+- **Image Gallery**: View and manage all images in `.images/`, copy Markdown tags directly to your clipboard, and drag-and-drop images into notes.
 
 ---
 
-## 🔄 GitHub Sync Integration (Optional)
+## 🛡️ Reverse Proxy & Public Share Routing
 
-ASDF offers built-in automatic sync with a remote GitHub repository. When active, every save pulls remote updates, handles conflict merges, and pushes local changes to GitHub.
+If you run ASDF behind an authentication proxy (Authentik, Cloudflare Access, Authelia, or Nginx), exempt the following paths so public share links remain accessible to visitors:
 
-Authentication is built around the **GitHub CLI (`gh`)** for simplicity. Instead of pasting personal tokens in docker-compose environment variables, ASDF reads your host machine's `gh` login session using volume mounts.
+- `/share/*` (Public shared note pages)
+- `/api/shared/*` (Backend API serving shared content and images)
+- `/_next/static/*` (Frontend bundles and styles)
 
-### Host Machine Setup
-
-1. **Install GitHub CLI (`gh`)**:
-   - Ubuntu/Debian: `sudo apt install gh`
-   - macOS: `brew install gh`
-   - Windows: `winget install GitHub.cli`
-2. **Login via Insecure Storage**:
-   To allow the Docker container (running as `root` inside the sandbox) to read your login token, you **must** instruct `gh` to store the token in the config file rather than your OS's desktop keyring. Run this command on your host:
-   ```bash
-   gh auth login --insecure-storage
-   ```
-   Follow the prompts to authenticate.
-3. **Configure Git Author**:
-   Ensure Git config has user name and email on the host:
-   ```bash
-   git config --global user.name "Your Name"
-   git config --global user.email "you@example.com"
-   ```
-
-### Compose Configuration
-Ensure the host mounts `~/.config/gh` and `~/.gitconfig` as read-only. This is already set in the default `compose.yml`:
-```yaml
-    volumes:
-      - ./notes:/app/data
-      - ~/.config/gh:/root/.config/gh:ro
-      - ~/.gitconfig:/root/.gitconfig:ro
-```
-Set the `GITHUB_REPO` env var to your private repository URL:
-```yaml
-    environment:
-      - GITHUB_REPO=https://github.com/username/your-notes-repo.git
-```
-
----
-
-## 🛡️ Bypassing Authentication Proxies for Shares
-
-If you run ASDF behind an identity proxy (like Cloudflare Access, Authentik, Authelia, or Nginx basic auth), you must configure bypass routes so public share links function correctly.
-
-Exempt the following routes from authentication:
-- `/share/*` (Web frontend pages)
-- `/api/shared/*` (Backend API endpoints serving shared note content and images)
-- `/_next/static/*` (Static bundle files required to render the shared page)
-
-### Route Configuration Examples
-
-#### Nginx Configuration
+### Nginx Example
 ```nginx
 server {
     server_name notes.example.com;
@@ -237,69 +211,26 @@ server {
         proxy_pass http://127.0.0.1:3000;
     }
     location / {
-        # Secure auth proxy block...
+        # Forward-auth block (Authentik / Authelia)
         auth_request /outpost.goauthentik.io/auth/nginx;
         proxy_pass http://127.0.0.1:3000;
     }
 }
 ```
 
-#### Cloudflare Access
-1. Open the Cloudflare Zero Trust Dashboard → Access → Applications.
-2. Edit your ASDF Application.
-3. Under policies, create a **Bypass** policy:
-   - **Name**: `Public Shares`
-   - **Action**: Bypass
-   - **Rules**: Path matches:
-     - `/share/*`
-     - `/api/shared/*`
-     - `/_next/static/*`
-
-#### Caddy + Authentik (Forward Auth)
-```caddy
-notes.example.com {
-    @not_shared {
-        not path /share/*
-        not path /api/shared/*
-        not path /_next/static/*
-    }
-    handle @not_shared {
-        # ... forward auth config ...
-    }
-    handle {
-        reverse_proxy http://127.0.0.1:3000
-    }
-}
-```
-
-#### Authelia
-```yaml
-access_control:
-  rules:
-    - domain: notes.example.com
-      resources:
-        - "^/share/.*$"
-        - "^/api/shared/.*$"
-        - "^/_next/static/.*$"
-      policy: bypass
-    - domain: notes.example.com
-      policy: one_factor
-```
-
 ---
 
 ## 🛠️ Development Setup
 
-To run a hot-reloading development environment locally:
+To run a hot-reloading development environment:
 
-1. Launch dev containers:
-   ```bash
-   docker compose -f compose.dev.yml up --build
-   ```
-   - **Go Backend**: `http://localhost:8080` (reloads on Go file changes via `air`)
-   - **Next.js Frontend**: `http://localhost:3000` (reloads on React code changes)
-2. Create and edit Markdown files under the local `./notes` directory to test file sync watcher.
+```bash
+docker compose -f compose.dev.yml up --build
+```
+- **Backend API**: `http://localhost:8080` (Go live reload via `air`)
+- **Frontend UI**: `http://localhost:3000` (Next.js hot reload)
+- **Database**: Pure Go SQLite stored at `./notes/.asdf.db`
 
 ---
 
-*Open sourced and maintained by leraptor65*
+*Maintained by leraptor65*

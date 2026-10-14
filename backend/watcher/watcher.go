@@ -123,15 +123,14 @@ func (w *Watcher) ProcessFile(path string) {
 	// Basic implementation - wait for full frontmatter parser
 
 	_, err = w.db.Exec(`
-		INSERT INTO notes (filename, title, content, content_vector, last_modified) 
-		VALUES ($1, $2, $3, to_tsvector('english', $3), NOW())
+		INSERT INTO notes (filename, title, content, is_pinned, last_modified) 
+		VALUES (?, ?, ?, COALESCE((SELECT is_pinned FROM notes WHERE filename = ?), 0), CURRENT_TIMESTAMP)
 		ON CONFLICT (filename) 
 		DO UPDATE SET 
-			title = EXCLUDED.title,
-			content = EXCLUDED.content,
-			content_vector = to_tsvector('english', EXCLUDED.content),
-			last_modified = NOW()
-	`, filename, title, content)
+			title = excluded.title,
+			content = excluded.content,
+			last_modified = CURRENT_TIMESTAMP
+	`, filename, title, content, filename)
 
 	if err != nil {
 		log.Printf("Error upserting note %s: %v", path, err)
@@ -145,13 +144,13 @@ func (w *Watcher) ProcessFile(path string) {
 func (w *Watcher) indexWikiLinks(sourceFilename string, content string) {
 	// Get source note ID
 	var sourceID int
-	err := w.db.QueryRow("SELECT id FROM notes WHERE filename = $1", sourceFilename).Scan(&sourceID)
+	err := w.db.QueryRow("SELECT id FROM notes WHERE filename = ?", sourceFilename).Scan(&sourceID)
 	if err != nil {
 		return
 	}
 
 	// Delete old links from this source
-	w.db.Exec("DELETE FROM links WHERE source_id = $1", sourceID)
+	w.db.Exec("DELETE FROM links WHERE source_id = ?", sourceID)
 
 	// Find all [[...]] references
 	matches := wikiLinkRegex.FindAllStringSubmatch(content, -1)
@@ -170,14 +169,14 @@ func (w *Watcher) indexWikiLinks(sourceFilename string, content string) {
 		var targetID int
 		err := w.db.QueryRow(`
 			SELECT id FROM notes WHERE 
-				filename = $1 OR 
-				filename = $2 OR 
-				filename LIKE '%/' || $2
-		`, targetName, targetName+".md").Scan(&targetID)
+				filename = ? OR 
+				filename = ? OR 
+				filename LIKE '%/' || ?
+		`, targetName, targetName+".md", targetName+".md").Scan(&targetID)
 
 		if err == nil && targetID != sourceID {
 			w.db.Exec(
-				"INSERT INTO links (source_id, target_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+				"INSERT INTO links (source_id, target_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
 				sourceID, targetID,
 			)
 		}
@@ -194,9 +193,9 @@ func (w *Watcher) RemoveFile(path string) {
 	// If filename ends with .md, delete it specifically.
 	// Otherwise (e.g. folder moved/deleted), delete all entries starting with the folder name
 	if strings.HasSuffix(filename, ".md") {
-		_, err = w.db.Exec("DELETE FROM notes WHERE filename = $1", filename)
+		_, err = w.db.Exec("DELETE FROM notes WHERE filename = ?", filename)
 	} else {
-		_, err = w.db.Exec("DELETE FROM notes WHERE filename = $1 OR filename LIKE $2", filename, filename+"/%")
+		_, err = w.db.Exec("DELETE FROM notes WHERE filename = ? OR filename LIKE ?", filename, filename+"/%")
 	}
 	if err != nil {
 		log.Printf("Error deleting note/folder %s: %v", path, err)
@@ -250,7 +249,7 @@ func SyncDatabaseWithDisk(db *sql.DB, dataDir string) {
 	// 3. Delete stale rows
 	for _, filename := range toDelete {
 		log.Printf("Database Sync: pruning stale record: %s", filename)
-		_, err = db.Exec("DELETE FROM notes WHERE filename = $1", filename)
+		_, err = db.Exec("DELETE FROM notes WHERE filename = ?", filename)
 		if err != nil {
 			log.Printf("Database Sync: delete error for %s: %v", filename, err)
 		}

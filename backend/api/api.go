@@ -2,7 +2,6 @@ package api
 
 import (
 	"archive/zip"
-	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -13,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -134,6 +132,14 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	// Backlinks
 	r.Get("/api/backlinks", a.HandleGetBacklinks)
 
+	// Note Pinning
+	r.Post("/api/notes/pin", a.HandlePinNote)
+
+	// Authentication routes
+	r.Get("/api/auth/status", a.HandleAuthStatus)
+	r.Post("/api/auth/login", a.HandleAuthLogin)
+	r.Post("/api/auth/logout", a.HandleAuthLogout)
+
 	// Git status info for Settings
 	r.Get("/api/git/status", a.HandleGetGitStatus)
 	r.Post("/api/git/toggle", a.HandleToggleGitSync)
@@ -143,7 +149,7 @@ func (a *API) RegisterRoutes(r chi.Router) {
 }
 
 func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query("SELECT DISTINCT ON (filename) id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes ORDER BY filename, last_modified DESC")
+	rows, err := a.db.Query("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified FROM notes ORDER BY is_pinned DESC, filename ASC")
 	if err != nil {
 		log.Printf("HandleListNotes: %v", err)
 		http.Error(w, "Failed to list notes", http.StatusInternalServerError)
@@ -154,10 +160,14 @@ func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
 	var notes []models.Note
 	for rows.Next() {
 		var n models.Note
-		if err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified); err != nil {
+		if err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified); err != nil {
 			continue
 		}
 		notes = append(notes, n)
+	}
+
+	if notes == nil {
+		notes = []models.Note{}
 	}
 
 	setJSON(w)
@@ -172,8 +182,8 @@ func (a *API) HandleGetNote(w http.ResponseWriter, r *http.Request) {
 	filename, _ = url.PathUnescape(filename)
 
 	var n models.Note
-	err := a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes WHERE filename = $1", filename).
-		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified)
+	err := a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified FROM notes WHERE filename = ?", filename).
+		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified)
 
 	if err == sql.ErrNoRows {
 		// Try falling back to disk if watcher hasn't caught it yet
@@ -236,22 +246,25 @@ func (a *API) HandleSaveNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	git := gitops.NewGitManager(a.dataDir)
-	git.CommitAll("Update "+filename)
+	git.CommitAll("Update " + filename)
 	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func buildFuzzyPattern(query string) string {
-	var sb strings.Builder
-	sb.WriteRune('%')
-	for _, r := range query {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			sb.WriteRune(r)
-			sb.WriteRune('%')
+func sanitizeFTSQuery(q string) string {
+	words := strings.Fields(q)
+	var escaped []string
+	for _, w := range words {
+		clean := strings.ReplaceAll(w, `"`, `""`)
+		if clean != "" {
+			escaped = append(escaped, `"`+clean+`"*`)
 		}
 	}
-	return sb.String()
+	if len(escaped) == 0 {
+		return `""`
+	}
+	return strings.Join(escaped, " ")
 }
 
 func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
@@ -261,27 +274,28 @@ func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fuzzyPattern := buildFuzzyPattern(query)
+	likeQuery := "%" + query + "%"
+	ftsQuery := sanitizeFTSQuery(query)
 
 	rows, err := a.db.Query(`
-		SELECT id, filename, title, frontmatter, last_modified
-		FROM (
-			SELECT DISTINCT ON (filename) id, filename, title, COALESCE(frontmatter, '{}') as frontmatter, last_modified,
-				(CASE 
-					WHEN filename ILIKE '%' || $1 || '%' THEN 10
-					WHEN filename ILIKE $2 THEN 5
-					WHEN content_vector @@ plainto_tsquery('english', $1) THEN 3
-					WHEN content ILIKE '%' || $1 || '%' THEN 1
-					ELSE 0
-				END) as rank
-			FROM notes 
-			WHERE filename ILIKE '%' || $1 || '%' 
-			   OR filename ILIKE $2 
-			   OR content_vector @@ plainto_tsquery('english', $1) 
-			   OR content ILIKE '%' || $1 || '%'
-		) sub
-		ORDER BY rank DESC, filename ASC
-	`, query, fuzzyPattern)
+		SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified
+		FROM notes
+		WHERE id IN (
+			SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?
+		)
+		OR filename LIKE ?
+		OR content LIKE ?
+		ORDER BY is_pinned DESC, (filename LIKE ?) DESC, last_modified DESC
+	`, ftsQuery, likeQuery, likeQuery, likeQuery)
+
+	if err != nil {
+		rows, err = a.db.Query(`
+			SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified
+			FROM notes
+			WHERE filename LIKE ? OR content LIKE ?
+			ORDER BY is_pinned DESC, (filename LIKE ?) DESC, last_modified DESC
+		`, likeQuery, likeQuery, likeQuery)
+	}
 
 	if err != nil {
 		log.Printf("HandleSearchNotes: %v", err)
@@ -293,14 +307,48 @@ func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
 	var notes []models.Note
 	for rows.Next() {
 		var n models.Note
-		err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.LastModified)
+		err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified)
 		if err == nil {
 			notes = append(notes, n)
 		}
 	}
 
+	if notes == nil {
+		notes = []models.Note{}
+	}
+
 	setJSON(w)
 	json.NewEncoder(w).Encode(notes)
+}
+
+func (a *API) HandlePinNote(w http.ResponseWriter, r *http.Request) {
+	limitBody(r, maxJSONBodySize)
+	var req struct {
+		Filename string `json:"filename"`
+		Pinned   bool   `json:"pinned"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	val := 0
+	if req.Pinned {
+		val = 1
+	}
+	_, err := a.db.Exec("UPDATE notes SET is_pinned = ? WHERE filename = ?", val, req.Filename)
+	if err != nil {
+		log.Printf("HandlePinNote: %v", err)
+		http.Error(w, "Failed to update pin status", http.StatusInternalServerError)
+		return
+	}
+
+	setJSON(w)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"filename": req.Filename,
+		"pinned":   req.Pinned,
+	})
 }
 
 func (a *API) HandleUploadImage(w http.ResponseWriter, r *http.Request) {
@@ -871,16 +919,24 @@ func (a *API) HandleCreateShareLink(w http.ResponseWriter, r *http.Request) {
 		expiresAt = &t
 	}
 
-	var link models.SharedLink
-	err := a.db.QueryRow(
-		"INSERT INTO shared_links (token, filename, expires_at) VALUES ($1, $2, $3) RETURNING id, token, filename, expires_at, created_at",
+	res, err := a.db.Exec(
+		"INSERT INTO shared_links (token, filename, expires_at) VALUES (?, ?, ?)",
 		token, req.Filename, expiresAt,
-	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
+	)
 
 	if err != nil {
 		log.Printf("HandleCreateShareLink: %v", err)
 		http.Error(w, "Failed to create share link", http.StatusInternalServerError)
 		return
+	}
+
+	id, _ := res.LastInsertId()
+	link := models.SharedLink{
+		ID:        int(id),
+		Token:     token,
+		Filename:  req.Filename,
+		ExpiresAt: expiresAt,
+		CreatedAt: time.Now(),
 	}
 
 	setJSON(w)
@@ -930,7 +986,7 @@ func (a *API) HandleListShareLinks(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) HandleRevokeShareLink(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
-	_, err := a.db.Exec("DELETE FROM shared_links WHERE token = $1", token)
+	_, err := a.db.Exec("DELETE FROM shared_links WHERE token = ?", token)
 	if err != nil {
 		log.Printf("HandleRevokeShareLink: %v", err)
 		http.Error(w, "Failed to revoke link", http.StatusInternalServerError)
@@ -951,7 +1007,7 @@ func (a *API) HandleUpdateShareLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.ExpiresIn == "never" {
-		_, err := a.db.Exec("UPDATE shared_links SET expires_at = NULL WHERE token = $1", token)
+		_, err := a.db.Exec("UPDATE shared_links SET expires_at = NULL WHERE token = ?", token)
 		if err != nil {
 			log.Printf("HandleUpdateShareLink: %v", err)
 			http.Error(w, "Failed to update link", http.StatusInternalServerError)
@@ -964,7 +1020,7 @@ func (a *API) HandleUpdateShareLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		newExpiry := time.Now().Add(duration)
-		_, err = a.db.Exec("UPDATE shared_links SET expires_at = $1 WHERE token = $2", newExpiry, token)
+		_, err = a.db.Exec("UPDATE shared_links SET expires_at = ? WHERE token = ?", newExpiry, token)
 		if err != nil {
 			log.Printf("HandleUpdateShareLink: %v", err)
 			http.Error(w, "Failed to update link", http.StatusInternalServerError)
@@ -980,7 +1036,7 @@ func (a *API) HandleViewSharedNote(w http.ResponseWriter, r *http.Request) {
 
 	var link models.SharedLink
 	err := a.db.QueryRow(
-		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = $1", token,
+		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = ?", token,
 	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
 
 	if err == sql.ErrNoRows {
@@ -1001,8 +1057,8 @@ func (a *API) HandleViewSharedNote(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch note content
 	var n models.Note
-	err = a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes WHERE filename = $1", link.Filename).
-		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified)
+	err = a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified FROM notes WHERE filename = ?", link.Filename).
+		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified)
 
 	if err == sql.ErrNoRows {
 		// Fallback to disk
@@ -1040,7 +1096,7 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 	// 1. Validate the share token
 	var link models.SharedLink
 	err := a.db.QueryRow(
-		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = $1", token,
+		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = ?", token,
 	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
 
 	if err == sql.ErrNoRows {
@@ -1061,7 +1117,7 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 
 	// 3. Fetch the PARENT shared note content to check for [[...]] reference
 	var parentContent string
-	err = a.db.QueryRow("SELECT content FROM notes WHERE filename = $1", link.Filename).Scan(&parentContent)
+	err = a.db.QueryRow("SELECT content FROM notes WHERE filename = ?", link.Filename).Scan(&parentContent)
 	if err != nil {
 		// Fallback to disk
 		parentPath, pathErr := safePath(a.dataDir, link.Filename)
@@ -1120,14 +1176,14 @@ func (a *API) HandleViewSharedLinkedNote(w http.ResponseWriter, r *http.Request)
 
 	var n models.Note
 	// Try exact match first, then base name match for notes in subdirectories
-	err = a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes WHERE filename = $1", targetFilename).
-		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified)
+	err = a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified FROM notes WHERE filename = ?", targetFilename).
+		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified)
 
 	if err == sql.ErrNoRows {
 		// Try matching by base filename
 		baseName := filepath.Base(targetFilename)
-		err = a.db.QueryRow(`SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, last_modified FROM notes WHERE filename = $1 OR filename LIKE '%/' || $1`, baseName).
-			Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.LastModified)
+		err = a.db.QueryRow(`SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified FROM notes WHERE filename = ? OR filename LIKE '%/' || ?`, baseName, baseName).
+			Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified)
 	}
 
 	if err == sql.ErrNoRows {
@@ -1185,7 +1241,7 @@ func (a *API) HandleServeSharedImage(w http.ResponseWriter, r *http.Request) {
 	// 1. Validate the share token
 	var link models.SharedLink
 	err := a.db.QueryRow(
-		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = $1", token,
+		"SELECT id, token, filename, expires_at, created_at FROM shared_links WHERE token = ?", token,
 	).Scan(&link.ID, &link.Token, &link.Filename, &link.ExpiresAt, &link.CreatedAt)
 
 	if err == sql.ErrNoRows {
@@ -1206,7 +1262,7 @@ func (a *API) HandleServeSharedImage(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Fetch the shared note content to verify the image is referenced
 	var noteContent string
-	err = a.db.QueryRow("SELECT content FROM notes WHERE filename = $1", link.Filename).Scan(&noteContent)
+	err = a.db.QueryRow("SELECT content FROM notes WHERE filename = ?", link.Filename).Scan(&noteContent)
 	if err != nil {
 		// Fallback to disk
 		notePath, pathErr := safePath(a.dataDir, link.Filename)
@@ -1246,7 +1302,6 @@ func (a *API) HandleServeSharedImage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, cleanPath)
 }
 
-
 func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 	filename := r.URL.Query().Get("file")
 	if filename == "" {
@@ -1258,17 +1313,17 @@ func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 
 	// Query using both: links table (indexed) and content LIKE (fallback)
 	rows, err := a.db.Query(`
-		SELECT DISTINCT n.id, n.filename, n.title, COALESCE(n.frontmatter, '{}'), n.last_modified
+		SELECT DISTINCT n.id, n.filename, n.title, COALESCE(n.frontmatter, '{}'), n.content, n.is_pinned, n.last_modified
 		FROM notes n
-		WHERE n.filename != $1 AND (
+		WHERE n.filename != ? AND (
 			n.id IN (
 				SELECT l.source_id FROM links l
 				JOIN notes target ON l.target_id = target.id
-				WHERE target.filename = $1
+				WHERE target.filename = ?
 			)
-			OR n.content LIKE '%[[' || $2 || ']]%'
+			OR n.content LIKE ?
 		)
-	`, filename, title)
+	`, filename, filename, "%[["+title+"]]%")
 	if err != nil {
 		log.Printf("HandleGetBacklinks: %v", err)
 		http.Error(w, "Failed to get backlinks", http.StatusInternalServerError)
@@ -1279,7 +1334,7 @@ func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 	var notes []models.Note
 	for rows.Next() {
 		var n models.Note
-		if err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.LastModified); err == nil {
+		if err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified); err == nil {
 			notes = append(notes, n)
 		}
 	}
@@ -1293,6 +1348,8 @@ func (a *API) HandleGetBacklinks(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) HandleGetGitStatus(w http.ResponseWriter, r *http.Request) {
 	repo := os.Getenv("GITHUB_REPO")
+	token := os.Getenv("GITHUB_TOKEN")
+	hasToken := token != ""
 
 	// Read local config file if exists
 	disabled := false
@@ -1306,46 +1363,13 @@ func (a *API) HandleGetGitStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get gh auth status
-	ghStatus, ghErr := gitops.GetGHAuthStatus()
-	ghLoggedIn := ghErr == nil
-
-	// Check if gh CLI is installed
-	ghInstalled := true
-	if _, err := exec.LookPath("gh"); err != nil {
-		ghInstalled = false
+	userName := os.Getenv("GIT_AUTHOR_NAME")
+	if userName == "" {
+		userName = "App User"
 	}
-
-	// Get token availability
-	hasToken := false
-	if ghLoggedIn {
-		cmd := exec.Command("gh", "auth", "token")
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = nil
-		if err := cmd.Run(); err == nil && strings.TrimSpace(out.String()) != "" {
-			hasToken = true
-		}
-	}
-
-	// Get git config values
-	userName := ""
-	userEmail := ""
-	if gitNameCmd := exec.Command("git", "config", "--get", "user.name"); gitNameCmd != nil {
-		var out bytes.Buffer
-		gitNameCmd.Stdout = &out
-		gitNameCmd.Stderr = nil
-		if err := gitNameCmd.Run(); err == nil {
-			userName = strings.TrimSpace(out.String())
-		}
-	}
-	if gitEmailCmd := exec.Command("git", "config", "--get", "user.email"); gitEmailCmd != nil {
-		var out bytes.Buffer
-		gitEmailCmd.Stdout = &out
-		gitEmailCmd.Stderr = nil
-		if err := gitEmailCmd.Run(); err == nil {
-			userEmail = strings.TrimSpace(out.String())
-		}
+	userEmail := os.Getenv("GIT_AUTHOR_EMAIL")
+	if userEmail == "" {
+		userEmail = "app@local"
 	}
 
 	gitMgr := gitops.NewGitManager(a.dataDir)
@@ -1355,9 +1379,6 @@ func (a *API) HandleGetGitStatus(w http.ResponseWriter, r *http.Request) {
 		"enabled":       repo != "",
 		"sync_disabled": disabled,
 		"repo":          repo,
-		"gh_installed":  ghInstalled,
-		"gh_logged_in":  ghLoggedIn,
-		"gh_status":     ghStatus,
 		"has_token":     hasToken,
 		"author_name":   userName,
 		"author_email":  userEmail,
@@ -1395,36 +1416,22 @@ func (a *API) HandleToggleGitSync(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) HandleCheckGitConnection(w http.ResponseWriter, r *http.Request) {
 	repoURL := os.Getenv("GITHUB_REPO")
+	token := os.Getenv("GITHUB_TOKEN")
+
 	if repoURL == "" {
 		setJSON(w)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"message": "GITHUB_REPO environment variable is not configured.",
+			"message": "GITHUB_REPO environment variable is not configured. Add GITHUB_REPO=https://github.com/username/your-notes.git in your compose.yml.",
 		})
 		return
 	}
 
-	// Get token from gh auth
-	var token string
-	cmd := exec.Command("gh", "auth", "token")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = nil
-	if err := cmd.Run(); err == nil {
-		token = strings.TrimSpace(out.String())
-	}
-
 	if token == "" {
-		// Also try to get gh auth status for diagnostics
-		ghStatus, _ := gitops.GetGHAuthStatus()
-		msg := "No GitHub token available. Run 'gh auth login' on the host machine."
-		if ghStatus != "" {
-			msg += "\n\ngh auth status output:\n" + ghStatus
-		}
 		setJSON(w)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"message": msg,
+			"message": "GITHUB_TOKEN environment variable is missing. Create a Personal Access Token on GitHub with 'Contents: Read and Write' permissions and set GITHUB_TOKEN in your compose.yml.",
 		})
 		return
 	}
