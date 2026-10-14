@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu, Upload, Home, Pin, PinOff } from "lucide-react";
+import { FileText, FileCode, File, Plus, Search, Settings, Folder, FolderOpen, ChevronRight, ChevronDown, FolderPlus, Trash2, ArchiveRestore, X, MoreVertical, AlertCircle, ChevronsDown, ChevronsUp, Menu, Upload, Home, Pin, PinOff } from "lucide-react";
 import { useState, useEffect } from "react";
 
 interface TreeItem {
@@ -97,13 +97,17 @@ function TreeNode({
         e.stopPropagation();
         setIsMenuOpen(false);
         const isFile = item.type === "file";
-        const currentName = isFile ? item.name.replace(".md", "") : item.name;
+        const oldExt = isFile ? (item.name.includes('.') ? '.' + item.name.split('.').pop() : '.md') : '';
+        const currentName = isFile ? item.name.replace(/\.(md|markdown|txt|html|htm|pdf)$/i, "") : item.name;
         const newName = prompt("Enter new name:", currentName);
         if (!newName || newName === currentName) return;
 
         const srcPath = item.path;
         const parentPath = item.path.split('/').slice(0, -1).join('/');
-        const cleanNewName = isFile && !newName.endsWith(".md") ? `${newName}.md` : newName;
+        let cleanNewName = newName.trim();
+        if (isFile && !/\.[a-zA-Z0-9]+$/.test(cleanNewName)) {
+            cleanNewName = `${cleanNewName}${oldExt}`;
+        }
         const destPath = parentPath ? `${parentPath}/${cleanNewName}` : cleanNewName;
 
         try {
@@ -144,14 +148,27 @@ function TreeNode({
     const handleNewNestedNote = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsMenuOpen(false);
-        const noteName = prompt("Enter new note name:");
+        const noteName = prompt("Enter note name (e.g. Note, Todo.txt, Page.html):");
         if (!noteName) return;
-        const cleanName = noteName.endsWith(".md") ? noteName : `${noteName}.md`;
+        const cleanTrimmed = noteName.trim();
+        let cleanName = cleanTrimmed;
+        if (!/\.[a-zA-Z0-9]+$/.test(cleanName)) {
+            cleanName = `${cleanName}.md`;
+        }
         const filename = `${item.path}/${cleanName}`;
+        const ext = cleanName.split('.').pop()?.toLowerCase();
+        const baseTitle = cleanTrimmed.replace(/\.[^/.]+$/, "");
+        let defaultContent = `# ${baseTitle}\n\nStart typing here...`;
+        if (ext === 'txt') {
+            defaultContent = `${baseTitle}\n\nStart typing here...`;
+        } else if (ext === 'html' || ext === 'htm') {
+            defaultContent = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <title>${baseTitle}</title>\n</head>\n<body>\n  <h1>${baseTitle}</h1>\n  <p>Start typing here...</p>\n</body>\n</html>`;
+        }
         onSelect({
             filename,
-            title: noteName.replace(".md", ""),
-            content: `# ${noteName.replace(".md", "")}\n\nStart typing here...`
+            title: baseTitle,
+            content: defaultContent,
+            file_type: ext === 'pdf' ? 'pdf' : (ext === 'html' || ext === 'htm' ? 'html' : (ext === 'txt' ? 'text' : 'markdown')),
         });
         setIsOpen(true);
     };
@@ -291,6 +308,8 @@ function TreeNode({
         }
     };
 
+    const ext = item.name.split('.').pop()?.toLowerCase() || '';
+
     return (
         <div {...dropProps} className={`group w-full flex items-center justify-between transition text-sm pr-4 ${isActive ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50"} ${isDragOver ? "bg-primary/20" : ""}`} style={{ paddingLeft: `${level * 16 + 16 + 18}px` }}>
             <button
@@ -305,10 +324,16 @@ function TreeNode({
                     </span>
                 ) : isPinned ? (
                     <Pin size={14} className="shrink-0 text-primary fill-primary mt-0.5" />
+                ) : ext === 'pdf' ? (
+                    <span className="shrink-0 text-[9px] font-bold text-red-500 bg-red-500/10 px-1 py-0.5 rounded border border-red-500/20 mt-0.5 leading-none">PDF</span>
+                ) : ext === 'html' || ext === 'htm' ? (
+                    <FileCode size={16} className="shrink-0 text-amber-500 mt-0.5" />
+                ) : ext === 'txt' ? (
+                    <FileText size={16} className="shrink-0 text-blue-500 mt-0.5" />
                 ) : (
                     <FileText size={16} className="shrink-0 opacity-70 mt-0.5" />
                 )}
-                <span className="break-words leading-tight flex-1">{item.name.replace(".md", "")}</span>
+                <span className="break-words leading-tight flex-1">{item.name.replace(/\.(md|markdown|txt|html|htm|pdf)$/i, "")}</span>
             </button>
             <div className="relative flex items-center shrink-0">
                 <button
@@ -559,26 +584,45 @@ export default function Sidebar({
                         <button
                             onClick={() => document.getElementById("sidebar-file-upload")?.click()}
                             className="p-1 hover:bg-muted rounded text-foreground"
-                            title="Upload Markdown"
+                            title="Upload Note (MD, TXT, HTML, PDF)"
                         >
                             <Upload size={18} />
                         </button>
                         <input
                             id="sidebar-file-upload"
                             type="file"
-                            accept=".md"
+                            accept=".md,.markdown,.txt,.html,.htm,.pdf"
                             className="hidden"
-                            onChange={(e) => {
+                            onChange={async (e) => {
                                 const file = e.target.files?.[0];
                                 if (!file) return;
-                                const reader = new FileReader();
-                                reader.onload = (event) => {
-                                    const text = event.target?.result;
-                                    if (typeof text === 'string') {
-                                        onUploadFile?.(file.name, text);
+                                const isPdf = file.name.toLowerCase().endsWith('.pdf');
+                                if (isPdf) {
+                                    const formData = new FormData();
+                                    formData.append("file", file);
+                                    try {
+                                        const res = await fetch("/api/upload/file", {
+                                            method: "POST",
+                                            body: formData,
+                                        });
+                                        if (res.ok) {
+                                            const data = await res.json();
+                                            onRefreshTree();
+                                            onSelectNote(data.filename);
+                                        }
+                                    } catch (err) {
+                                        console.error("PDF upload failed", err);
                                     }
-                                };
-                                reader.readAsText(file);
+                                } else {
+                                    const reader = new FileReader();
+                                    reader.onload = (event) => {
+                                        const text = event.target?.result;
+                                        if (typeof text === 'string') {
+                                            onUploadFile?.(file.name, text);
+                                        }
+                                    };
+                                    reader.readAsText(file);
+                                }
                                 e.target.value = ""; // Reset file input
                             }}
                         />

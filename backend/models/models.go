@@ -10,6 +10,8 @@ type Note struct {
 	Content      string    `json:"content"`
 	IsPinned     bool      `json:"is_pinned"`
 	LastModified time.Time `json:"last_modified"`
+	FileType     string    `json:"file_type,omitempty"`
+	RawURL       string    `json:"raw_url,omitempty"`
 }
 
 type Link struct {

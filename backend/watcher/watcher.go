@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -51,7 +52,7 @@ func (w *Watcher) Start() {
 				}
 
 				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-					if strings.HasSuffix(event.Name, ".md") {
+					if IsSupportedNoteFile(event.Name) {
 						log.Println("Modified file:", event.Name)
 						w.ProcessFile(event.Name)
 					}
@@ -94,33 +95,52 @@ func (w *Watcher) Start() {
 	log.Printf("Started recursively watching %s for changes", w.dataDir)
 }
 
+func IsSupportedNoteFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	return ext == ".md" || ext == ".markdown" || ext == ".txt" || ext == ".html" || ext == ".htm" || ext == ".pdf"
+}
+
 func (w *Watcher) ProcessFile(path string) {
-	contentBytes, err := os.ReadFile(path)
-	if err != nil {
-		log.Printf("Error reading file %s: %v", path, err)
+	if !IsSupportedNoteFile(path) {
 		return
 	}
 
-	content := string(contentBytes)
-
-	// Use relative path for database filename
 	relPath, err := filepath.Rel(w.dataDir, path)
 	if err != nil {
 		relPath = filepath.Base(path)
 	}
 
 	filename := relPath
-	title := strings.TrimSuffix(filepath.Base(path), ".md")
+	ext := strings.ToLower(filepath.Ext(path))
+	baseTitle := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	title := baseTitle
+	var content string
 
-	lines := strings.Split(content, "\n")
-	if len(lines) > 0 {
-		firstLine := strings.TrimSpace(lines[0])
-		if strings.HasPrefix(firstLine, "# ") {
-			title = strings.TrimSpace(strings.TrimPrefix(firstLine, "#"))
+	if ext == ".pdf" {
+		content = fmt.Sprintf("[PDF Document: %s]", title)
+	} else {
+		contentBytes, err := os.ReadFile(path)
+		if err != nil {
+			log.Printf("Error reading file %s: %v", path, err)
+			return
+		}
+		content = string(contentBytes)
+
+		if ext == ".html" || ext == ".htm" {
+			reTitle := regexp.MustCompile(`(?i)<title[^>]*>([^<]+)</title>`)
+			if m := reTitle.FindStringSubmatch(content); len(m) > 1 && strings.TrimSpace(m[1]) != "" {
+				title = strings.TrimSpace(m[1])
+			}
+		} else if ext == ".md" || ext == ".markdown" {
+			lines := strings.Split(content, "\n")
+			if len(lines) > 0 {
+				firstLine := strings.TrimSpace(lines[0])
+				if strings.HasPrefix(firstLine, "# ") {
+					title = strings.TrimSpace(strings.TrimPrefix(firstLine, "#"))
+				}
+			}
 		}
 	}
-
-	// Basic implementation - wait for full frontmatter parser
 
 	_, err = w.db.Exec(`
 		INSERT INTO notes (filename, title, content, is_pinned, last_modified) 
@@ -137,8 +157,9 @@ func (w *Watcher) ProcessFile(path string) {
 		return
 	}
 
-	// Index wiki-links: parse [[...]] references and update links table
-	w.indexWikiLinks(filename, content)
+	if ext == ".md" || ext == ".markdown" {
+		w.indexWikiLinks(filename, content)
+	}
 }
 
 func (w *Watcher) indexWikiLinks(sourceFilename string, content string) {
@@ -164,8 +185,6 @@ func (w *Watcher) indexWikiLinks(sourceFilename string, content string) {
 		}
 		targetName := match[1]
 
-		// Try to find the target note by matching filename patterns
-		// Search for exact filename match, with or without .md, with or without path
 		var targetID int
 		err := w.db.QueryRow(`
 			SELECT id FROM notes WHERE 
@@ -189,10 +208,8 @@ func (w *Watcher) RemoveFile(path string) {
 		relPath = filepath.Base(path)
 	}
 	filename := relPath
-	
-	// If filename ends with .md, delete it specifically.
-	// Otherwise (e.g. folder moved/deleted), delete all entries starting with the folder name
-	if strings.HasSuffix(filename, ".md") {
+
+	if IsSupportedNoteFile(filename) {
 		_, err = w.db.Exec("DELETE FROM notes WHERE filename = ?", filename)
 	} else {
 		_, err = w.db.Exec("DELETE FROM notes WHERE filename = ? OR filename LIKE ?", filename, filename+"/%")
@@ -204,8 +221,7 @@ func (w *Watcher) RemoveFile(path string) {
 
 func SyncDatabaseWithDisk(db *sql.DB, dataDir string) {
 	log.Println("Database Sync: scanning disk to prune deleted notes and index active ones...")
-	
-	// 1. Walk the filesystem to collect all current markdown files
+
 	diskFiles := make(map[string]bool)
 	err := filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -215,7 +231,7 @@ func SyncDatabaseWithDisk(db *sql.DB, dataDir string) {
 		if info.IsDir() && strings.HasPrefix(info.Name(), ".") && info.Name() != "." {
 			return filepath.SkipDir
 		}
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".md") {
+		if !info.IsDir() && IsSupportedNoteFile(info.Name()) {
 			relPath, err := filepath.Rel(dataDir, path)
 			if err == nil {
 				diskFiles[relPath] = true
@@ -228,7 +244,6 @@ func SyncDatabaseWithDisk(db *sql.DB, dataDir string) {
 		return
 	}
 
-	// 2. Fetch all tracked notes from the database
 	rows, err := db.Query("SELECT filename FROM notes")
 	if err != nil {
 		log.Printf("Database Sync: query error: %v", err)
@@ -246,7 +261,6 @@ func SyncDatabaseWithDisk(db *sql.DB, dataDir string) {
 		}
 	}
 
-	// 3. Delete stale rows
 	for _, filename := range toDelete {
 		log.Printf("Database Sync: pruning stale record: %s", filename)
 		_, err = db.Exec("DELETE FROM notes WHERE filename = ?", filename)
@@ -255,12 +269,11 @@ func SyncDatabaseWithDisk(db *sql.DB, dataDir string) {
 		}
 	}
 
-	// 4. Index active files to ensure they are synchronized
 	w := NewWatcher(db, dataDir)
 	for relPath := range diskFiles {
 		fullPath := filepath.Join(dataDir, relPath)
 		w.ProcessFile(fullPath)
 	}
-	
+
 	log.Printf("Database Sync: complete! Pruned %d stale rows, validated %d active files.", len(toDelete), len(diskFiles))
 }

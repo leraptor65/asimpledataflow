@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2, ArrowUpRight, Download, Pin } from "lucide-react";
+import { Check, Edit3, Columns, BookOpen, Copy, History, X, RotateCcw, AlertTriangle, Undo2, Share2, Printer, Link2, ArrowUpRight, ExternalLink, Download, Pin } from "lucide-react";
 import { loader } from "@monaco-editor/react";
 import { useTheme } from "next-themes";
 
@@ -91,6 +91,13 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
     const [viewMode, setViewMode] = useState<"editor" | "split" | "render">("render");
     const [showHistory, setShowHistory] = useState(false);
     const [history, setHistory] = useState<any[]>([]);
+
+    const fileExt = (note?.filename || "").split('.').pop()?.toLowerCase() || 'md';
+    const isPdf = fileExt === 'pdf' || note?.file_type === 'pdf';
+    const isHtml = fileExt === 'html' || fileExt === 'htm' || note?.file_type === 'html';
+    const isTxt = fileExt === 'txt' || note?.file_type === 'text';
+    const isMarkdown = !isPdf && !isHtml && !isTxt;
+    const monacoLanguage = isHtml ? 'html' : isTxt ? 'plaintext' : 'markdown';
 
     const handleTogglePin = async () => {
         if (!note || !note.filename) return;
@@ -187,8 +194,21 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
         }
     };
 
-    const handleDownloadMarkdown = () => {
+    const handleDownloadFile = () => {
         if (!note || !note.filename) return;
+
+        if (isPdf) {
+            const rawUrl = note.raw_url || `/api/raw/${encodeURIComponent(note.filename)}`;
+            const link = document.createElement("a");
+            link.href = rawUrl;
+            link.download = note.filename.split('/').pop() || "document.pdf";
+            link.target = "_blank";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setIsShareOpen(false);
+            return;
+        }
 
         let baseName = note.filename.split('/').pop() || note.filename;
         try {
@@ -197,12 +217,15 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
             console.error("Failed to decode filename for download", e);
         }
 
-        const downloadName = baseName.endsWith(".md") ? baseName : `${baseName}.md`;
-        const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+        let mimeType = "text/markdown;charset=utf-8";
+        if (isHtml) mimeType = "text/html;charset=utf-8";
+        else if (isTxt) mimeType = "text/plain;charset=utf-8";
+
+        const blob = new Blob([content], { type: mimeType });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = downloadName;
+        link.download = baseName;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -285,7 +308,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
         if (note) {
             setContent(note.content || "");
             setOriginalContent(note.content || "");
-            setFilenameInput((note.filename || "").replace(/\.md$/, ""));
+            setFilenameInput((note.filename || "").replace(/\.(md|markdown|txt|html|htm|pdf)$/i, ""));
             setIsDirty(false);
             setIsPinned(Boolean(note.is_pinned));
             setShareUrl("");
@@ -377,7 +400,12 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
     };
 
     const executeSync = (currentLatest: string) => {
-        const finalFilename = filenameInput.endsWith(".md") ? filenameInput : `${filenameInput}.md`;
+        if (isPdf) return;
+        const currentExt = (note.filename || "").includes('.') ? '.' + (note.filename.split('.').pop() || 'md') : '.md';
+        const rawNewName = filenameInput.trim();
+        const baseNameWithExt = /\.[a-zA-Z0-9]+$/.test(rawNewName) ? rawNewName : `${rawNewName}${currentExt}`;
+        const parentPath = note.filename ? note.filename.split('/').slice(0, -1).join('/') : "";
+        const finalFilename = parentPath ? `${parentPath}/${baseNameWithExt}` : baseNameWithExt;
         onSave(note.filename, finalFilename || note.filename, content);
         setIsSaved(true);
         setSyncDiffMode(false);
@@ -461,33 +489,65 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                 </div>
             )}
             <div className="flex flex-wrap items-center justify-between gap-2 p-3 md:p-4 border-b border-border bg-background">
-                <div className="text-lg md:text-xl font-semibold px-2 min-w-0 flex-1 md:flex-none md:w-1/2 truncate text-foreground">
-                    {filenameInput}
+                <div className="flex items-center gap-2 px-2 min-w-0 flex-1 md:flex-none md:w-1/2">
+                    <span className="text-lg md:text-xl font-semibold truncate text-foreground">
+                        {filenameInput}
+                    </span>
+                    {isPdf ? (
+                        <span className="text-[10px] font-bold text-red-500 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 uppercase tracking-wider">PDF</span>
+                    ) : isHtml ? (
+                        <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 uppercase tracking-wider">HTML</span>
+                    ) : isTxt ? (
+                        <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20 uppercase tracking-wider">TXT</span>
+                    ) : (
+                        <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded uppercase tracking-wider">MD</span>
+                    )}
                 </div>
                 <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-                    <div className="flex bg-muted rounded-md p-1 mr-2 md:mr-4">
-                        <button
-                            onClick={() => setViewMode("editor")}
-                            className={`p-1.5 rounded-sm transition ${viewMode === "editor" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                            title="Editor Only"
-                        >
-                            <Edit3 size={16} />
-                        </button>
-                        <button
-                            onClick={() => setViewMode("split")}
-                            className={`p-1.5 rounded-sm transition hidden md:block ${viewMode === "split" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                            title="Split View"
-                        >
-                            <Columns size={16} />
-                        </button>
-                        <button
-                            onClick={() => setViewMode("render")}
-                            className={`p-1.5 rounded-sm transition ${viewMode === "render" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                            title="Rendered Only"
-                        >
-                            <BookOpen size={16} />
-                        </button>
-                    </div>
+                    {isPdf ? (
+                        <>
+                            <a
+                                href={note.raw_url || `/api/raw/${encodeURIComponent(note.filename)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition"
+                                title="Open PDF in new tab"
+                            >
+                                <ExternalLink size={14} /> Open
+                            </a>
+                            <button
+                                onClick={handleDownloadFile}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80 transition"
+                                title="Download PDF"
+                            >
+                                <Download size={14} /> Download
+                            </button>
+                        </>
+                    ) : (
+                        <div className="flex bg-muted rounded-md p-1 mr-2 md:mr-4">
+                            <button
+                                onClick={() => setViewMode("editor")}
+                                className={`p-1.5 rounded-sm transition ${viewMode === "editor" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                                title="Editor Only"
+                            >
+                                <Edit3 size={16} />
+                            </button>
+                            <button
+                                onClick={() => setViewMode("split")}
+                                className={`p-1.5 rounded-sm transition hidden md:block ${viewMode === "split" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                                title="Split View"
+                            >
+                                <Columns size={16} />
+                            </button>
+                            <button
+                                onClick={() => setViewMode("render")}
+                                className={`p-1.5 rounded-sm transition ${viewMode === "render" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                                title="Rendered Only"
+                            >
+                                <BookOpen size={16} />
+                            </button>
+                        </div>
+                    )}
 
                     <button
                         onClick={fetchHistory}
@@ -611,7 +671,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                                             Print
                                         </button>
                                         <button
-                                            onClick={handleDownloadMarkdown}
+                                            onClick={handleDownloadFile}
                                             className="flex items-center gap-2 px-4 py-2.5 text-left hover:bg-muted transition-colors text-sm border-t border-border"
                                         >
                                             <Download size={16} className="text-muted-foreground" />
@@ -632,7 +692,15 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                 </div>
             </div>
             <div className="flex-1 flex overflow-hidden">
-                {diffMode || syncDiffMode ? (
+                {isPdf ? (
+                    <div className="w-full h-full flex flex-col bg-muted/20">
+                        <iframe
+                            src={`${note.raw_url || `/api/raw/${encodeURIComponent(note.filename)}`}#toolbar=1`}
+                            className="w-full h-full border-0"
+                            title={note.title || note.filename}
+                        />
+                    </div>
+                ) : diffMode || syncDiffMode ? (
                     <div className="w-full h-full flex flex-col">
                         <div className="bg-muted text-muted-foreground text-xs py-1 px-4 border-b border-border flex justify-between">
                             <span>{diffMode ? `Original (Commit: ${previewHash.substring(0, 7)})` : "Local File (Disk)"}</span>
@@ -640,7 +708,7 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                         </div>
                         <DiffEditor
                             height="100%"
-                            language="markdown"
+                            language={monacoLanguage}
                             theme={monacoTheme}
                             original={diffMode ? historicalContent : latestLocalContent}
                             modified={content}
@@ -664,11 +732,11 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                         {/* Monaco Editor (Left Pane) */}
                         {viewMode !== "render" && (
                             <div className={`${viewMode === "editor" ? "w-full" : "w-1/2 border-r"} border-border h-full flex flex-col`}>
-                                {!note.isViewOnly && <EditorToolbar onInsert={handleInsert} />}
+                                {!note.isViewOnly && isMarkdown && <EditorToolbar onInsert={handleInsert} />}
                                 <div className="flex-1">
                                     <Editor
                                         height="100%"
-                                        defaultLanguage="markdown"
+                                        language={monacoLanguage}
                                         theme={monacoTheme}
                                         value={content}
                                         onChange={handleEditorChange}
@@ -686,40 +754,53 @@ export default function SplitEditor({ note, onSave, onDirtyChange, onSelectNote,
                             </div>
                         )}
 
-                        {/* Markdown Preview (Right Pane) */}
+                        {/* Preview / Render (Right Pane) */}
                         {viewMode !== "editor" && (
-                            <div className={`${viewMode === "render" ? "w-full" : "w-1/2"} h-full overflow-y-auto p-8 bg-background`}>
-                                <div className="prose prose-invert max-w-none">
-                                    <ReactMarkdown
-                                        remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
-                                        rehypePlugins={[[rehypeHighlight, { detect: true }], rehypeKatex]}
-                                        components={{
-                                            pre: PreCode,
-                                            a: ({ href, children }: any) => {
-                                                if (href?.startsWith('/notes/')) {
-                                                    return (
-                                                        <span
-                                                            onClick={(e) => {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                const filename = decodeURIComponent(href.replace('/notes/', ''));
-                                                                onSelectNote?.(filename);
-                                                            }}
-                                                            className="text-primary hover:underline cursor-pointer"
-                                                            role="link"
-                                                            tabIndex={0}
-                                                        >
-                                                            {children}
-                                                        </span>
-                                                    );
+                            <div className={`${viewMode === "render" ? "w-full" : "w-1/2"} h-full overflow-y-auto ${isHtml ? "p-0 bg-white" : "p-8 bg-background"}`}>
+                                {isHtml ? (
+                                    <iframe
+                                        srcDoc={content}
+                                        sandbox="allow-scripts allow-popups"
+                                        className="w-full h-full border-0 bg-white"
+                                        title="HTML Preview"
+                                    />
+                                ) : isTxt ? (
+                                    <pre className="font-mono text-sm whitespace-pre-wrap text-foreground break-words font-normal">
+                                        {content || <span className="text-muted-foreground italic">Empty text file</span>}
+                                    </pre>
+                                ) : (
+                                    <div className="prose prose-invert max-w-none">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
+                                            rehypePlugins={[[rehypeHighlight, { detect: true }], rehypeKatex]}
+                                            components={{
+                                                pre: PreCode,
+                                                a: ({ href, children }: any) => {
+                                                    if (href?.startsWith('/notes/')) {
+                                                        return (
+                                                            <span
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    const filename = decodeURIComponent(href.replace('/notes/', ''));
+                                                                    onSelectNote?.(filename);
+                                                                }}
+                                                                className="text-primary hover:underline cursor-pointer"
+                                                                role="link"
+                                                                tabIndex={0}
+                                                            >
+                                                                {children}
+                                                            </span>
+                                                        );
+                                                    }
+                                                    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
                                                 }
-                                                return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
-                                            }
-                                        }}
-                                    >
-                                        {processWikiLinks(content) || "*Empty note*"}
-                                    </ReactMarkdown>
-                                </div>
+                                            }}
+                                        >
+                                            {processWikiLinks(content) || "*Empty note*"}
+                                        </ReactMarkdown>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </>

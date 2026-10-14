@@ -5,8 +5,8 @@ WORKDIR /app
 # Install git for note version control
 RUN apk add --no-cache git
 
-# Install air for live reloading
-RUN go install github.com/air-verse/air@latest
+# Install air for live reloading (v1.61.7 compatible with Go 1.25)
+RUN go install github.com/air-verse/air@v1.61.7
 
 # Copy go mod and go.sum
 COPY go.mod go.sum ./

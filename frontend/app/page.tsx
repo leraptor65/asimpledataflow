@@ -226,7 +226,7 @@ export default function Home() {
   };
 
   const handleCreateNote = () => {
-    const noteName = prompt("Enter new note name:");
+    const noteName = prompt("Enter new note name (e.g. Note, Todo.txt, Page.html):");
     if (noteName === null) return; // user cancelled
     
     const cleanName = noteName.trim();
@@ -235,18 +235,29 @@ export default function Home() {
       return;
     }
     
-    const filename = cleanName.endsWith(".md") ? cleanName : `${cleanName}.md`;
+    let filename = cleanName;
+    if (!/\.[a-zA-Z0-9]+$/.test(filename)) {
+      filename = `${cleanName}.md`;
+    }
     const exists = notes.some((n: any) => n.filename.toLowerCase() === filename.toLowerCase());
     if (exists) {
       alert("A note with that name already exists");
       return;
     }
     
-    const title = cleanName.replace(/\.md$/, "");
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const title = cleanName.replace(/\.[^/.]+$/, "");
+    let defaultContent = `# ${title}\n\nStart typing here...`;
+    if (ext === 'txt') {
+      defaultContent = `${title}\n\nStart typing here...`;
+    } else if (ext === 'html' || ext === 'htm') {
+      defaultContent = `<!DOCTYPE html>\n<html>\n<head>\n  <meta charset="utf-8">\n  <title>${title}</title>\n</head>\n<body>\n  <h1>${title}</h1>\n  <p>Start typing here...</p>\n</body>\n</html>`;
+    }
     const newNote = {
       filename,
       title,
-      content: `# ${title}\n\nStart typing here...`,
+      content: defaultContent,
+      file_type: ext === 'pdf' ? 'pdf' : (ext === 'html' || ext === 'htm' ? 'html' : (ext === 'txt' ? 'text' : 'markdown')),
     };
     setSelectedNote(newNote);
     selectedNoteRef.current = newNote;
@@ -264,7 +275,7 @@ export default function Home() {
     
     setSelectedNote((current: any) => {
       if (current && current.filename === oldPath) {
-        const cleanName = newPath.split('/').pop()?.replace(/\.md$/, "") || newPath;
+        const cleanName = newPath.split('/').pop()?.replace(/\.(md|markdown|txt|html|htm|pdf)$/i, "") || newPath;
         const updated = {
           ...current,
           filename: newPath,
@@ -495,11 +506,36 @@ export default function Home() {
           className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[200] flex flex-col items-center justify-center border-4 border-dashed border-primary m-4 rounded-xl animate-in fade-in duration-200"
           onDragLeave={() => setIsDraggingFile(false)}
           onDragOver={(e: React.DragEvent) => e.preventDefault()}
-          onDrop={(e: React.DragEvent) => {
+          onDrop={async (e: React.DragEvent) => {
             e.preventDefault();
             setIsDraggingFile(false);
             const file = e.dataTransfer.files?.[0];
-            if (file && file.name.endsWith(".md")) {
+            if (!file) return;
+
+            const nameLower = file.name.toLowerCase();
+            const isSupported = /\.(md|markdown|txt|html|htm|pdf)$/i.test(nameLower);
+            if (!isSupported) {
+              alert("Supported note file types: .md, .txt, .html, .pdf");
+              return;
+            }
+
+            if (nameLower.endsWith(".pdf")) {
+              const formData = new FormData();
+              formData.append("file", file);
+              try {
+                const res = await fetch("/api/upload/file", {
+                  method: "POST",
+                  body: formData,
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  await handleRefreshWorkspace();
+                  handleSelectNote(data.filename);
+                }
+              } catch (err) {
+                console.error("Failed to upload PDF", err);
+              }
+            } else {
               const reader = new FileReader();
               reader.onload = (event) => {
                 const text = event.target?.result;
@@ -508,14 +544,12 @@ export default function Home() {
                 }
               };
               reader.readAsText(file);
-            } else if (file) {
-              alert("Only Markdown (.md) files are supported.");
             }
           }}
         >
           <Upload size={48} className="text-primary mb-4 animate-bounce" />
-          <p className="text-lg font-semibold">Drop your Markdown (.md) file here</p>
-          <p className="text-sm text-muted-foreground mt-1">Release to import the note</p>
+          <p className="text-lg font-semibold">Drop your note (.md, .txt, .html, .pdf) here</p>
+          <p className="text-sm text-muted-foreground mt-1">Release to import the file into your vault</p>
         </div>
       )}
 

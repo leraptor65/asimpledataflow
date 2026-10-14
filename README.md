@@ -36,10 +36,14 @@ A high-performance, self-contained Markdown note-taking vault built with a Go ba
 
 ## ✨ Features
 
-### 📝 Editor & Markdown
-- **Split Pane Layout**: Side-by-side Monaco Editor (left) with styled live Markdown preview (right), full render mode, and mobile responsive layout.
+### 📝 Multi-Format Editor & Documents
+- **Multi-Format Note Vault**: Native support for Markdown (`.md`, `.markdown`), HTML (`.html`, `.htm`), Plaintext (`.txt`), and PDF (`.pdf`) documents.
+- **Split Pane Layout**: Side-by-side Monaco Editor (left) with styled live preview (right), full render mode, and mobile responsive layout. Language modes automatically switch between Markdown, HTML, and plaintext.
+- **Embedded PDF Viewer**: Seamless embedded PDF preview with toolbar controls, external tab viewing, and direct downloads.
+- **Sandboxed HTML Preview**: Real-time sandboxed iframe rendering for HTML documents.
 - **GFM & Math**: GitHub Flavored Markdown tables, KaTeX display/inline math, task lists (`- [x]`), syntax-highlighted code blocks with one-click copy.
 - **Bidirectional Wiki Links**: Inline links using `[[Note Name]]` that automatically resolve paths and track incoming backlinks.
+- **Drag & Drop / Multipart Upload**: Drag files directly onto the workspace or upload documents via the sidebar import tool.
 - **View-Only Sandbox**: Safely preview imported or external notes in memory without adding them to your permanent vault.
 
 ### 🗂️ Organization & Search

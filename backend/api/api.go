@@ -94,7 +94,9 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Get("/api/notes/*", a.HandleGetNote)
 	r.Post("/api/notes/*", a.HandleSaveNote)
 	r.Get("/api/search", a.HandleSearchNotes)
+	r.Get("/api/raw/*", a.HandleServeRawFile)
 	r.Post("/api/upload", a.HandleUploadImage)
+	r.Post("/api/upload/file", a.HandleUploadFile)
 	r.Post("/api/folders", a.HandleCreateFolder)
 	r.Put("/api/move", a.HandleMoveItem)
 	r.Delete("/api/delete", a.HandleDeleteItem)
@@ -148,6 +150,20 @@ func (a *API) RegisterRoutes(r chi.Router) {
 	r.Get("/api/version", a.HandleGetVersion)
 }
 
+func detectFileType(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".pdf":
+		return "pdf"
+	case ".html", ".htm":
+		return "html"
+	case ".txt":
+		return "text"
+	default:
+		return "markdown"
+	}
+}
+
 func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified FROM notes ORDER BY is_pinned DESC, filename ASC")
 	if err != nil {
@@ -163,6 +179,8 @@ func (a *API) HandleListNotes(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified); err != nil {
 			continue
 		}
+		n.FileType = detectFileType(n.Filename)
+		n.RawURL = "/api/raw/" + n.Filename
 		notes = append(notes, n)
 	}
 
@@ -185,6 +203,7 @@ func (a *API) HandleGetNote(w http.ResponseWriter, r *http.Request) {
 	err := a.db.QueryRow("SELECT id, filename, title, COALESCE(frontmatter, '{}'), content, is_pinned, last_modified FROM notes WHERE filename = ?", filename).
 		Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified)
 
+	ext := strings.ToLower(filepath.Ext(filename))
 	if err == sql.ErrNoRows {
 		// Try falling back to disk if watcher hasn't caught it yet
 		path, pathErr := safePath(a.dataDir, filename)
@@ -192,19 +211,37 @@ func (a *API) HandleGetNote(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid path", http.StatusBadRequest)
 			return
 		}
-		content, err := os.ReadFile(path)
-		if err != nil {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
 			http.Error(w, "Note not found", http.StatusNotFound)
 			return
 		}
+
 		n.Filename = filename
-		n.Content = string(content)
-		n.Title = filename
+		n.LastModified = info.ModTime()
+		if ext == ".pdf" {
+			n.Title = strings.TrimSuffix(filepath.Base(filename), ".pdf")
+			n.Content = ""
+		} else {
+			content, err := os.ReadFile(path)
+			if err != nil {
+				http.Error(w, "Note not found", http.StatusNotFound)
+				return
+			}
+			n.Content = string(content)
+			n.Title = strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+		}
 	} else if err != nil {
 		log.Printf("HandleGetNote: %v", err)
 		http.Error(w, "Failed to get note", http.StatusInternalServerError)
 		return
 	}
+
+	if ext == ".pdf" {
+		n.Content = ""
+	}
+	n.FileType = detectFileType(n.Filename)
+	n.RawURL = "/api/raw/" + n.Filename
 
 	setJSON(w)
 	json.NewEncoder(w).Encode(n)
@@ -216,6 +253,12 @@ func (a *API) HandleSaveNote(w http.ResponseWriter, r *http.Request) {
 		filename = chi.URLParam(r, "filename")
 	}
 	filename, _ = url.PathUnescape(filename)
+
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == ".pdf" {
+		http.Error(w, "PDF files cannot be edited as text directly", http.StatusBadRequest)
+		return
+	}
 
 	limitBody(r, maxJSONBodySize)
 	var req struct {
@@ -309,6 +352,8 @@ func (a *API) HandleSearchNotes(w http.ResponseWriter, r *http.Request) {
 		var n models.Note
 		err := rows.Scan(&n.ID, &n.Filename, &n.Title, &n.Frontmatter, &n.Content, &n.IsPinned, &n.LastModified)
 		if err == nil {
+			n.FileType = detectFileType(n.Filename)
+			n.RawURL = "/api/raw/" + n.Filename
 			notes = append(notes, n)
 		}
 	}
@@ -541,8 +586,8 @@ func (a *API) HandleGetTree(w http.ResponseWriter, r *http.Request) {
 			}
 			return nil
 		}
-		// Also skip files that aren't markdown
-		if !info.IsDir() && !strings.HasSuffix(info.Name(), ".md") {
+		// Also skip files that aren't supported notes
+		if !info.IsDir() && !watcher.IsSupportedNoteFile(info.Name()) {
 			return nil
 		}
 
@@ -1622,4 +1667,109 @@ func (a *API) HandleSyncDatabase(w http.ResponseWriter, r *http.Request) {
 		"message": "Database successfully synchronized with disk.",
 	})
 }
+
+func (a *API) HandleServeRawFile(w http.ResponseWriter, r *http.Request) {
+	filename := chi.URLParam(r, "*")
+	filename, _ = url.PathUnescape(filename)
+
+	path, err := safePath(a.dataDir, filename)
+	if err != nil {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".pdf":
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", "inline; filename=\""+filepath.Base(path)+"\"")
+	case ".html", ".htm":
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	case ".txt":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	case ".md", ".markdown":
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	default:
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+
+	http.ServeFile(w, r, path)
+}
+
+func (a *API) HandleUploadFile(w http.ResponseWriter, r *http.Request) {
+	// 50MB max upload size
+	r.Body = http.MaxBytesReader(w, r.Body, 50*1024*1024)
+	if err := r.ParseMultipartForm(50 * 1024 * 1024); err != nil {
+		http.Error(w, "File too large or invalid multipart form", http.StatusBadRequest)
+		return
+	}
+
+	file, handler, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Error retrieving file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	folder := strings.TrimSpace(r.FormValue("folder"))
+	folder = strings.TrimPrefix(folder, "/")
+	folder = strings.TrimSuffix(folder, "/")
+
+	cleanFilename := sanitizeFilename(handler.Filename)
+	if cleanFilename == "" || !watcher.IsSupportedNoteFile(cleanFilename) {
+		http.Error(w, "File type not supported. Allowed: .md, .txt, .html, .pdf", http.StatusBadRequest)
+		return
+	}
+
+	targetRelPath := cleanFilename
+	if folder != "" {
+		targetRelPath = filepath.Join(folder, cleanFilename)
+	}
+
+	fullPath, err := safePath(a.dataDir, targetRelPath)
+	if err != nil {
+		http.Error(w, "Invalid target path", http.StatusBadRequest)
+		return
+	}
+
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("HandleUploadFile mkdir: %v", err)
+		http.Error(w, "Failed to create directory", http.StatusInternalServerError)
+		return
+	}
+
+	dst, err := os.Create(fullPath)
+	if err != nil {
+		log.Printf("HandleUploadFile create: %v", err)
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		log.Printf("HandleUploadFile write: %v", err)
+		http.Error(w, "Failed to write file contents", http.StatusInternalServerError)
+		return
+	}
+
+	git := gitops.NewGitManager(a.dataDir)
+	git.CommitFile(targetRelPath, "Upload "+targetRelPath)
+	watcher.SyncDatabaseWithDisk(a.db, a.dataDir)
+
+	setJSON(w)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"filename":  targetRelPath,
+		"file_type": detectFileType(targetRelPath),
+		"raw_url":   "/api/raw/" + targetRelPath,
+	})
+}
+
 
