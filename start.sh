@@ -12,8 +12,8 @@ cleanup() {
 trap cleanup INT TERM
 
 # Start backend server in the background
-echo "Starting ASDF Go Backend on port 8080..."
-./backend-server &
+echo "Starting ASDF Go Backend on port ${BACKEND_PORT:-8080}..."
+PORT="${BACKEND_PORT:-8080}" ./backend-server &
 BACKEND_PID=$!
 
 # Start Next.js frontend server in the background

@@ -73,8 +73,11 @@ func main() {
 	w := watcher.NewWatcher(db, dataDir)
 	w.Start()
 
-	port := os.Getenv("PORT")
+	port := os.Getenv("BACKEND_PORT")
 	if port == "" {
+		port = os.Getenv("PORT")
+	}
+	if port == "" || port == "3000" {
 		port = "8080"
 	}
 
