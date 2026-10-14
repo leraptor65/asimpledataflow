@@ -350,18 +350,20 @@ func (g *GitManager) WriteSyncLog(action string, syncErr error) {
 	if syncErr != nil {
 		errStr = syncErr.Error()
 		lowerErr := strings.ToLower(errStr)
-		if strings.Contains(lowerErr, "auth") || strings.Contains(lowerErr, "authentication") || strings.Contains(lowerErr, "401") || strings.Contains(lowerErr, "credentials") {
-			rec = "Authentication failed. Run 'gh auth login --insecure-storage' on the host machine to authenticate."
+		if strings.Contains(lowerErr, "email privacy") {
+			rec = "GitHub rejected push due to email privacy restrictions. Either allow command line pushes exposing your personal email in your GitHub Email Settings, or set GIT_AUTHOR_EMAIL to your GitHub noreply address (e.g. ID+username@users.noreply.github.com)."
+		} else if strings.Contains(lowerErr, "auth") || strings.Contains(lowerErr, "authentication") || strings.Contains(lowerErr, "401") || strings.Contains(lowerErr, "credentials") {
+			rec = "Authentication failed. Verify that GITHUB_TOKEN is valid and has 'repo' (Contents: read and write) permissions."
 		} else if strings.Contains(lowerErr, "username") || strings.Contains(lowerErr, "terminal") || strings.Contains(lowerErr, "prompt") {
-			rec = "Interactive prompt requested. Make sure you have logged in via 'gh auth login --insecure-storage' on the host."
+			rec = "Missing credentials. Make sure GITHUB_TOKEN is provided in your environment variables."
 		} else if strings.Contains(lowerErr, "resolve") || strings.Contains(lowerErr, "dial tcp") || strings.Contains(lowerErr, "timeout") {
-			rec = "Network connection failed. Verify the server has internet access and your proxy/DNS settings are correct."
+			rec = "Network connection failed. Verify the server has internet access and your DNS/firewall settings are correct."
 		} else if strings.Contains(lowerErr, "not found") || strings.Contains(lowerErr, "404") {
-			rec = "Repository not found. Double check your GITHUB_REPO URL and ensure the repository exists on GitHub."
+			rec = "Repository not found. Double check your GITHUB_REPO URL and ensure the repository exists on GitHub and the token has access to it."
 		} else if strings.Contains(lowerErr, "non-fast-forward") || strings.Contains(lowerErr, "merge") {
-			rec = "Conflicts detected. Run a manual git pull/merge on the host to resolve conflicts."
+			rec = "Conflicts detected. Try running Push to GitHub or sync remote changes to resolve conflicts."
 		} else {
-			rec = "Check GITHUB_REPO settings and run 'gh auth status' on the host for diagnostics."
+			rec = "Check your GITHUB_REPO and GITHUB_TOKEN environment variables."
 		}
 	}
 

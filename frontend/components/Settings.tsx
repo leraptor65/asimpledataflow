@@ -484,10 +484,10 @@ export default function Settings() {
                                 if (!gitStatus) return { text: "Loading", color: "bg-muted/10 border border-muted/20", textClass: "text-muted-foreground", dot: "bg-muted-foreground" };
                                 if (!gitStatus.enabled) return { text: "Not Configured", color: "bg-destructive/10 border border-destructive/20", textClass: "text-destructive", dot: "bg-destructive" };
                                 if (gitStatus.sync_disabled) return { text: "Sync Suspended", color: "bg-amber-500/10 border border-amber-500/20", textClass: "text-amber-500", dot: "bg-amber-500" };
-                                if (gitStatus.gh_logged_in && gitStatus.has_token) {
+                                if (gitStatus.has_token) {
                                     return { text: "Connected & Active", color: "bg-green-500/10 border border-green-500/20", textClass: "text-green-500", dot: "bg-green-500" };
                                 }
-                                return { text: "Auth Action Required", color: "bg-amber-500/10 border border-amber-500/20", textClass: "text-amber-500", dot: "bg-amber-500" };
+                                return { text: "Token Required", color: "bg-amber-500/10 border border-amber-500/20", textClass: "text-amber-500", dot: "bg-amber-500" };
                             };
                             const syncStatus = getSyncStatus();
 
