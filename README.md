@@ -1,11 +1,11 @@
-# A Simple Data Flow (ASDF) — v3.0.0
+# A Simple Data Flow (ASDF) — v3.1.0
 
-A high-performance, self-contained Markdown note-taking vault built with a Go backend and a Next.js frontend, delivered as a single Docker container. Features embedded SQLite with FTS5 full-text search, local Git version control, token-based GitHub sync, note pinning, and flexible authentication (web password & reverse proxy forward-auth).
+A high-performance, self-contained multi-format note-taking vault built with a Go backend and a Next.js frontend, delivered as a single Docker container. Features native support for Markdown, HTML, Plaintext, and PDF documents, embedded SQLite with FTS5 full-text search, local Git version control, token-based GitHub sync, note pinning, and flexible authentication (web password & reverse proxy forward-auth).
 
 ---
 
 ## 📖 Table of Contents
-1. [What's New in v3.0.0](#-whats-new-in-v300)
+1. [What's New in v3.1.0](#-whats-new-in-v310)
 2. [Features](#-features)
 3. [Quick Start & Deployment](#-quick-start--deployment)
 4. [Environment & Configuration](#-environment--configuration)
@@ -23,14 +23,18 @@ A high-performance, self-contained Markdown note-taking vault built with a Go ba
 
 ---
 
-## 🚀 What's New in v3.0.0
+## 🚀 What's New in v3.1.0
 
-- 🗄️ **Embedded SQLite + FTS5 (No Postgres Container)**: Migrated from external PostgreSQL to embedded pure Go SQLite (`modernc.org/sqlite`) with WAL mode and FTS5 triggers. Zero external database containers, lower RAM consumption, and instant zero-config startup.
-- 📌 **Note Pinning**: Pin frequently accessed notes to a dedicated "Pinned Notes" section at the top of your sidebar, with quick pin toggles in the editor header and folder tree context menu.
-- 🔐 **Web Password Protection (`APP_PASSWORD`)**: Protect your vault with a single environment variable. Features a responsive login screen and secure 30-day session cookies.
-- 🛡️ **Forward-Auth Integration (Authentik, Authelia, Cloudflare Access)**: Transparent authentication passthrough via reverse-proxy headers (`X-authentik-username`, `Remote-User`, `X-Forwarded-User`, or custom `AUTH_HEADER`).
-- 🔄 **100% Token-Based GitHub Sync**: Removed host `gh` CLI dependencies, `--insecure-storage` keyring flags, and host volume mounts. Sync is now configured purely with standard environment variables (`GITHUB_REPO` and `GITHUB_TOKEN`).
-- ⚡ **Next.js App Optimization**: Standalone static asset caching, route rewrites to prevent 404s on browser refreshes, and concurrent Git lock synchronization.
+- 📄 **Multi-Format Document Vault (PDF, HTML, TXT, MD)**: First-class support for viewing and managing `.pdf`, `.html`, `.txt`, and `.md` notes.
+- 📑 **Embedded PDF Viewer**: View PDFs directly inside ASDF with full navigation, toolbar controls, "Open in New Tab", and download capabilities.
+- 🌐 **Sandboxed HTML Preview**: Real-time sandboxed iframe rendering with HTML syntax highlighting in the Monaco Editor.
+- 📝 **Plaintext Note Support**: Clean monospace editor and viewer mode for `.txt` files.
+- 📤 **Multipart File Upload**: Directly drag & drop or upload binary and document files into any workspace directory via `/api/upload/file`.
+- 🗄️ **Embedded SQLite + FTS5**: Pure Go SQLite (`modernc.org/sqlite`) with WAL mode and FTS5 triggers for all supported document types.
+- 📌 **Note Pinning**: Pin frequently accessed notes to a dedicated "Pinned Notes" section.
+- 🔐 **Web Password Protection (`APP_PASSWORD`)**: Single environment variable password vault protection with 30-day session cookies.
+- 🛡️ **Forward-Auth Integration (Authentik, Authelia, Cloudflare Access)**: Transparent authentication passthrough via reverse-proxy headers.
+- 🔄 **100% Token-Based GitHub Sync**: Zero external CLI dependencies, seamless automated synchronization via standard environment variables.
 
 ---
 
@@ -69,7 +73,7 @@ Create a `compose.yml` file:
 ```yaml
 services:
   app:
-    image: leraptor65/asimpledataflow:3.0.0
+    image: leraptor65/asimpledataflow:3.1.0
     ports:
       - "3000:3000"
     volumes:
